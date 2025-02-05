@@ -2,31 +2,74 @@ import SwiftUI
 import FirebaseFirestore
 
 struct ContentFeedView: View {
+    @EnvironmentObject var appState: AppState
     @StateObject private var viewModel = ContentFeedViewModel()
-    @State private var selectedCategory: String = "restaurant"
     
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea() // Base background
+            Color.black.ignoresSafeArea()
             
             VStack(spacing: 0) {
-                // Neighborhood Selector
-                NeighborhoodSelector(
-                    neighborhoods: viewModel.unlockedNeighborhoods,
-                    selected: $viewModel.selectedNeighborhood
-                )
-                .padding(.top, 60) // Account for status bar
-                
-                // Category Pills
-                HStack(spacing: 16) {
-                    CategoryPill(title: "Restaurants", isSelected: selectedCategory == "restaurant")
-                        .onTapGesture { selectedCategory = "restaurant" }
-                    CategoryPill(title: "Events", isSelected: selectedCategory == "event")
-                        .onTapGesture { selectedCategory = "event" }
+                neighborhoodSelector
+                categorySelector
+                contentArea
+            }
+        }
+        .task {
+            await viewModel.loadUnlockedNeighborhoods()
+            await viewModel.loadContent()
+        }
+        .onChange(of: appState.lastUnlockedNeighborhoodId) { newId in
+            if let newId = newId,
+               let neighborhood = viewModel.unlockedNeighborhoods.first(where: { $0.id == newId }) {
+                viewModel.selectedNeighborhood = neighborhood
+                Task {
+                    await viewModel.loadContent()
                 }
-                .padding(.vertical, 12)
-                
-                // Content Feed
+            }
+        }
+    }
+    
+    // Break up into smaller views
+    private var neighborhoodSelector: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(viewModel.unlockedNeighborhoods) { neighborhood in
+                    NeighborhoodPill(
+                        neighborhood: neighborhood,
+                        isSelected: viewModel.selectedNeighborhood?.id == neighborhood.id
+                    )
+                    .onTapGesture {
+                        viewModel.selectedNeighborhood = neighborhood
+                        Task {
+                            await viewModel.loadContent()
+                        }
+                    }
+                }
+            }
+            .padding()
+        }
+        .background(.ultraThinMaterial)
+    }
+    
+    private var categorySelector: some View {
+        HStack(spacing: 16) {
+            CategoryPill(title: "Restaurants", isSelected: viewModel.selectedCategory == "restaurant")
+                .onTapGesture { viewModel.categorySelected("restaurant") }
+            CategoryPill(title: "Events", isSelected: viewModel.selectedCategory == "event")
+                .onTapGesture { viewModel.categorySelected("event") }
+        }
+        .padding(.vertical, 12)
+    }
+    
+    private var contentArea: some View {
+        Group {
+            if viewModel.isLoading {
+                ProgressView()
+            } else if viewModel.contentItems.isEmpty {
+                Text("No content available")
+                    .foregroundColor(.white)
+            } else {
                 TabView(selection: $viewModel.currentIndex) {
                     ForEach(viewModel.contentItems.indices, id: \.self) { index in
                         ContentItemView(content: viewModel.contentItems[index])
@@ -34,11 +77,7 @@ struct ContentFeedView: View {
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
-                .ignoresSafeArea()
             }
-        }
-        .task {
-            await viewModel.loadUnlockedNeighborhoods()
         }
     }
 }

@@ -149,6 +149,10 @@ class LandmarkDetectionViewModel: ObservableObject {
             }
         }
     }
+    
+    func updateAppState(_ newAppState: AppState) {
+        self.appState = newAppState
+    }
 }
 
 // New view for displaying landmark details
@@ -208,14 +212,9 @@ struct LandmarkDetailView: View {
 
 struct LandmarkDetectionView: View {
     @EnvironmentObject var appState: AppState
-    @StateObject private var viewModel: LandmarkDetectionViewModel
+    @StateObject private var viewModel = LandmarkDetectionViewModel(appState: AppState())
     @State private var showingLoadingAlert = false
     private let firestoreService = FirestoreService()
-    
-    init(appState: AppState? = nil) {
-        let viewModelAppState = appState ?? AppState()
-        _viewModel = StateObject(wrappedValue: LandmarkDetectionViewModel(appState: viewModelAppState))
-    }
     
     var body: some View {
         NavigationView {
@@ -293,9 +292,7 @@ struct LandmarkDetectionView: View {
             Button("OK", role: .cancel) { }
         }
         .onAppear {
-            if viewModel == nil {
-                _viewModel = StateObject(wrappedValue: LandmarkDetectionViewModel(appState: appState))
-            }
+            viewModel.updateAppState(appState)
         }
     }
 }
@@ -303,7 +300,7 @@ struct LandmarkDetectionView: View {
 struct LandmarkDetectionView_Previews: PreviewProvider {
     static var previews: some View {
         let previewAppState = AppState()
-        LandmarkDetectionView(appState: previewAppState)
+        LandmarkDetectionView()
             .environmentObject(previewAppState)
     }
 }

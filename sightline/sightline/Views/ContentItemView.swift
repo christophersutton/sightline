@@ -12,33 +12,33 @@ struct ContentItemView: View {
                     VideoPlayer(player: player)
                         .edgesIgnoringSafeArea(.all)
                 } else {
-                    Color.black // placeholder while loading
+                    Color.black
                     ProgressView()
                 }
                 
-                // Video info overlay
+                // Overlay info
                 VStack {
                     Spacer()
                     HStack {
                         VStack(alignment: .leading) {
                             Text(content.caption)
-                                .foregroundColor(.white)
-                                .shadow(radius: 2)
+                                .font(.headline)
                             Text("\(content.likes) likes")
-                                .foregroundColor(.white.opacity(0.8))
-                                .font(.caption)
+                                .font(.subheadline)
                         }
+                        .foregroundColor(.white)
+                        .shadow(radius: 2)
                         Spacer()
                     }
                     .padding()
                 }
             }
-            .onAppear {
-                viewModel.loadVideo(from: content.videoUrl)
-            }
-            .onDisappear {
-                viewModel.cleanup()
-            }
+        }
+        .onAppear {
+            viewModel.loadVideo(from: content.videoUrl)
+        }
+        .onDisappear {
+            viewModel.cleanup()
         }
     }
 }

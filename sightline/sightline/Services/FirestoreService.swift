@@ -13,6 +13,7 @@ protocol FirestoreServiceProtocol {
     // Content
     func fetchContentForPlace(placeId: String) async throws -> [Content]
     func fetchContentByCategory(category: String) async throws -> [Content]
+    func fetchContentByCategory(category: String, neighborhoodId: String) async throws -> [Content]
     
     // Detection
     func saveDetectionResult(landmarkName: String) async throws
@@ -76,14 +77,25 @@ class FirestoreService: FirestoreServiceProtocol {
         return contents
     }
     
+    func fetchContentByCategory(category: String, neighborhoodId: String) async throws -> [Content] {
+        let snapshot = try await db.collection("content")
+            .whereField("neighborhoodId", isEqualTo: neighborhoodId)
+            .whereField("type", isEqualTo: category)
+            .order(by: "createdAt", descending: true)
+            .limit(to: 5)
+            .getDocuments()
+            
+        return snapshot.documents.compactMap { doc in
+            try? doc.data(as: Content.self)
+        }
+    }
+    
     private func preloadVideos(for contents: [Content]) async {
         for content in contents {
             guard let url = URL(string: content.videoUrl) else { continue }
-            
             let asset = AVURLAsset(url: url)
-            
             do {
-                _ = try await asset.load(.isPlayable)
+                try await asset.load(.isPlayable)
             } catch {
                 print("Error preloading video: \(error)")
             }
