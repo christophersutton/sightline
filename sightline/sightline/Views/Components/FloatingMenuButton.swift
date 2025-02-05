@@ -20,17 +20,68 @@ struct FloatingMenuButton<Label: View>: View {
             label()
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
+                // Main background layers
                 .background {
                     if isSelected {
-                        Color.white
-                    } else {
                         Color.white.opacity(0.2)
+                    } else {
+                        Color.white.opacity(0.1)
                     }
                 }
                 .background(.ultraThinMaterial)
-                .foregroundColor(isSelected ? .black : .white)
-                .cornerRadius(20)
+                .foregroundColor(.white)
+                .cornerRadius(25)
+                // Multiple shadows for depth
+                .shadow(color: .black.opacity(0.2), radius: 12, x: 0, y: 6)  // Outer shadow
+                .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)   // Close shadow for depth
+                // Layered overlays for texture
+                .overlay {
+                    // Subtle gradient overlay
+                    LinearGradient(
+                        colors: [
+                            .white.opacity(0.4),
+                            .white.opacity(0.1)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    .cornerRadius(25)
+                    .opacity(0.5)
+                }
+                .overlay {
+                    // Inner ring
+                    RoundedRectangle(cornerRadius: 25)
+                        .stroke(
+                            LinearGradient(
+                                colors: [
+                                    .white.opacity(0.5),
+                                    .white.opacity(0.2)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
+                }
+                .overlay {
+                    // Top edge highlight
+                    RoundedRectangle(cornerRadius: 25)
+                        .stroke(
+                            .white.opacity(0.5),
+                            lineWidth: 1
+                        )
+                        .mask {
+                            LinearGradient(
+                                colors: [.white, .clear],
+                                startPoint: .top,
+                                endPoint: .center
+                            )
+                        }
+                }
         }
+        // Button press effect
+        .scaleEffect(isSelected ? 0.98 : 1.0)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
     }
 }
 

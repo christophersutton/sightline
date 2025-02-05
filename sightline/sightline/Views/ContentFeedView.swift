@@ -48,7 +48,7 @@ struct ContentFeedView: View {
                     isExpanded: $showingCategories
                 )
             }
-            .padding(.top, 44) // Increase top padding to account for status bar
+            .padding(.top, 24) // Reduced from 44 to bring it closer to top
             .padding(.horizontal)
             .zIndex(2)
         }
