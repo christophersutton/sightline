@@ -4,52 +4,53 @@ import FirebaseFirestore
 struct ContentFeedView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var viewModel = ContentFeedViewModel()
+    @State private var showingNeighborhoods = false
+    @State private var showingCategories = false
     
     var body: some View {
-        NavigationStack(path: $appState.navigationPath) {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                
-                VStack(spacing: 0) {
-                    neighborhoodSelector
-                    categorySelector
-                    
-                    if viewModel.isLoading {
-                        Spacer()
-                        ProgressView()
-                        Spacer()
-                    } else if viewModel.contentItems.isEmpty {
-                        Spacer()
-                        VStack {
-                            Text("No content available")
-                                .foregroundColor(.white)
-                            
-                            #if DEBUG
-                            Button(action: {
-                                Task {
-                                    try? await viewModel.loadTestData()
-                                }
-                            }) {
-                                Text("Load Test Data")
-                                    .padding()
-                                    .background(Color.blue)
-                                    .foregroundColor(.white)
-                                    .cornerRadius(8)
-                            }
-                            #endif
+        ZStack(alignment: .top) {
+            Color.black.ignoresSafeArea()
+            
+            contentFeed
+                .zIndex(0)
+            
+            // Just the menus, no separate trigger buttons
+            HStack {
+                // Neighborhoods Menu
+                FloatingMenu(
+                    items: viewModel.unlockedNeighborhoods,
+                    itemTitle: { $0.name },
+                    selectedId: viewModel.selectedNeighborhood?.id,
+                    onSelect: { neighborhood in
+                        viewModel.selectedNeighborhood = neighborhood
+                        showingNeighborhoods = false
+                        Task {
+                            await viewModel.loadContent()
                         }
-                        Spacer()
-                    } else {
-                        contentFeed
-                    }
-                }
+                    },
+                    alignment: .leading,
+                    isExpanded: $showingNeighborhoods
+                )
+                
+                Spacer()
+                
+                // Categories Menu
+                FloatingMenu(
+                    items: ContentType.allCases,
+                    itemTitle: { $0.rawValue.capitalized },
+                    selectedId: viewModel.selectedCategory.rawValue,
+                    onSelect: { category in
+                        print("Selected category: \(category.rawValue)")
+                        viewModel.categorySelected(category)
+                        showingCategories = false
+                    },
+                    alignment: .trailing,
+                    isExpanded: $showingCategories
+                )
             }
-            .navigationDestination(for: AppState.NavigationDestination.self) { destination in
-                switch destination {
-                case .placeDetail(let placeId, let initialContentId):
-                    PlaceDetailView(placeId: placeId, initialContentId: initialContentId)
-                }
-            }
+            .padding(.top, 44) // Increase top padding to account for status bar
+            .padding(.horizontal)
+            .zIndex(2)
         }
         .task {
             await viewModel.loadUnlockedNeighborhoods()
@@ -66,54 +67,37 @@ struct ContentFeedView: View {
         }
     }
     
-    // Break up into smaller views
-    private var neighborhoodSelector: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(viewModel.unlockedNeighborhoods) { neighborhood in
-                    NeighborhoodPill(
-                        neighborhood: neighborhood,
-                        isSelected: viewModel.selectedNeighborhood?.id == neighborhood.id
-                    )
-                    .onTapGesture {
-                        viewModel.selectedNeighborhood = neighborhood
-                        Task {
-                            await viewModel.loadContent()
-                        }
-                    }
-                }
-            }
-            .padding()
-        }
-        .background(.ultraThinMaterial)
-    }
-    
-    private var categorySelector: some View {
-        HStack(spacing: 16) {
-            CategoryPill(title: "Restaurants", isSelected: viewModel.selectedCategory == .restaurant)
-                .onTapGesture { viewModel.categorySelected(.restaurant) }
-            CategoryPill(title: "Events", isSelected: viewModel.selectedCategory == .event)
-                .onTapGesture { viewModel.categorySelected(.event) }
-        }
-        .padding(.vertical, 12)
-    }
-    
     private var contentFeed: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 0) {
-                    ForEach(viewModel.contentItems.indices, id: \.self) { index in
-                        ContentItemView(content: viewModel.contentItems[index])
-                            .frame(height: UIScreen.main.bounds.height)
-                            .id(index)
-                            .onAppear {
-                                viewModel.currentIndex = index
-                            }
+                    if viewModel.isLoading {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, maxHeight: UIScreen.main.bounds.height)
+                    } else {
+                        ForEach(viewModel.contentItems.indices, id: \.self) { index in
+                            ContentItemView(content: viewModel.contentItems[index])
+                                .frame(
+                                    width: UIScreen.main.bounds.width,
+                                    height: UIScreen.main.bounds.height,
+                                    alignment: .center
+                                )
+                                .id(index)
+                                .onAppear {
+                                    viewModel.currentIndex = index
+                                }
+                        }
                     }
                 }
             }
             .scrollTargetBehavior(.paging)
             .scrollTargetLayout()
+            .ignoresSafeArea()  // Make scroll view edge-to-edge
+            .onChange(of: viewModel.contentItems) { oldValue, newValue in
+                withAnimation {
+                    proxy.scrollTo(0, anchor: .top)
+                }
+            }
         }
     }
 }

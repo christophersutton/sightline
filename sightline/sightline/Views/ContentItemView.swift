@@ -5,6 +5,7 @@ struct ContentItemView: View {
     @EnvironmentObject var appState: AppState
     let content: Content
     @StateObject private var viewModel = ContentItemViewModel()
+    @Environment(\.safeAreaInsets) private var safeAreaInsets
     
     var body: some View {
         GeometryReader { geo in
@@ -12,6 +13,8 @@ struct ContentItemView: View {
                 if let player = viewModel.player {
                     VideoPlayer(player: player)
                         .edgesIgnoringSafeArea(.all)
+                        .frame(width: geo.size.width, height: geo.size.height + safeAreaInsets.top + safeAreaInsets.bottom)
+                        .offset(y: -safeAreaInsets.top)
                 } else {
                     Color.black
                     ProgressView()
@@ -87,5 +90,18 @@ class ContentItemViewModel: ObservableObject {
         player?.pause()
         player = nil
         playerLooper = nil
+    }
+}
+
+// Add this extension to get safe area insets in SwiftUI
+private extension EnvironmentValues {
+    var safeAreaInsets: EdgeInsets {
+        (UIApplication.shared.windows.first?.safeAreaInsets ?? .zero).insets
+    }
+}
+
+private extension UIEdgeInsets {
+    var insets: EdgeInsets {
+        EdgeInsets(top: top, leading: left, bottom: bottom, trailing: right)
     }
 } 

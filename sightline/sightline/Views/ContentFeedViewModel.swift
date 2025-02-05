@@ -64,6 +64,7 @@ class ContentFeedViewModel: ObservableObject {
     // Called when category changes
     func categorySelected(_ category: ContentType) {
         selectedCategory = category
+        currentIndex = 0  // Reset index when category changes
         Task {
             await loadContent()
         }
