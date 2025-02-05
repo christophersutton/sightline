@@ -12,7 +12,7 @@ struct Place: Identifiable, Codable {
     let thumbnailUrl: String?
     
     // For places like restaurants that might have additional info
-    let details: [String: String]?
+    let details: [String: String]
     
     // For filtering/searching
     let tags: [String]

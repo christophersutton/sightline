@@ -9,7 +9,12 @@ class ContentFeedViewModel: ObservableObject {
     @Published var selectedNeighborhood: Neighborhood?
     @Published var selectedCategory: ContentType = .restaurant
     @Published var contentItems: [Content] = []
-    @Published var currentIndex: Int = 0
+    @Published var currentIndex: Int = 0 {
+        didSet {
+            // Handle video preloading here when we implement it
+            print("Current index changed to: \(currentIndex)")
+        }
+    }
     @Published var isLoading = false
     
     private let services = ServiceContainer.shared

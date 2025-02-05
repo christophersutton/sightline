@@ -2,6 +2,7 @@ import SwiftUI
 import AVKit
 
 struct ContentItemView: View {
+    @EnvironmentObject var appState: AppState
     let content: Content
     @StateObject private var viewModel = ContentItemViewModel()
     
@@ -19,6 +20,22 @@ struct ContentItemView: View {
                 // Overlay info
                 VStack {
                     Spacer()
+                    
+                    // Place pill button
+                    Button(action: {
+                        appState.navigationPath.append(
+                            AppState.NavigationDestination.placeDetail(
+                                placeId: content.placeId,
+                                initialContentId: content.id
+                            )
+                        )
+                    }) {
+                        Text("View Place") // We'll style this better later
+                            .padding()
+                            .background(.ultraThinMaterial)
+                            .cornerRadius(20)
+                    }
+                    
                     HStack {
                         VStack(alignment: .leading) {
                             Text(content.caption)

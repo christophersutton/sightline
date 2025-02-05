@@ -20,6 +20,11 @@ protocol FirestoreServiceProtocol {
     
     // Detection
     func saveDetectionResult(landmarkName: String) async throws
+    
+    // Places
+    func fetchPlace(id: String) async throws -> Place
+    func fetchPlacesInNeighborhood(neighborhoodId: String) async throws -> [Place]
+    func addPlace(_ place: Place) async throws
 }
 
 class FirestoreService: FirestoreServiceProtocol {
@@ -50,8 +55,8 @@ class FirestoreService: FirestoreServiceProtocol {
             .order(by: "createdAt", descending: true)
             .getDocuments()
             
-        return snapshot.documents.compactMap { doc in
-            try? doc.data(as: Content.self)
+        return snapshot.documents.compactMap { document in
+            try? document.data(as: Content.self)
         }
     }
     
@@ -341,5 +346,13 @@ class FirestoreService: FirestoreServiceProtocol {
                 try await doc.reference.delete()
             }
         }
+    }
+    
+    func fetchPlace(id: String) async throws -> Place {
+        let snapshot = try await db.collection("places").document(id).getDocument()
+        guard let place = try? snapshot.data(as: Place.self) else {
+            throw FirestoreError.decodingError
+        }
+        return place
     }
 } 

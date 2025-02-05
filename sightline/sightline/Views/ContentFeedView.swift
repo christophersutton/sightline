@@ -6,13 +6,49 @@ struct ContentFeedView: View {
     @StateObject private var viewModel = ContentFeedViewModel()
     
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            
-            VStack(spacing: 0) {
-                neighborhoodSelector
-                categorySelector
-                contentArea
+        NavigationStack(path: $appState.navigationPath) {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                
+                VStack(spacing: 0) {
+                    neighborhoodSelector
+                    categorySelector
+                    
+                    if viewModel.isLoading {
+                        Spacer()
+                        ProgressView()
+                        Spacer()
+                    } else if viewModel.contentItems.isEmpty {
+                        Spacer()
+                        VStack {
+                            Text("No content available")
+                                .foregroundColor(.white)
+                            
+                            #if DEBUG
+                            Button(action: {
+                                Task {
+                                    try? await viewModel.loadTestData()
+                                }
+                            }) {
+                                Text("Load Test Data")
+                                    .padding()
+                                    .background(Color.blue)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(8)
+                            }
+                            #endif
+                        }
+                        Spacer()
+                    } else {
+                        contentFeed
+                    }
+                }
+            }
+            .navigationDestination(for: AppState.NavigationDestination.self) { destination in
+                switch destination {
+                case .placeDetail(let placeId, let initialContentId):
+                    PlaceDetailView(placeId: placeId, initialContentId: initialContentId)
+                }
             }
         }
         .task {
@@ -62,37 +98,22 @@ struct ContentFeedView: View {
         .padding(.vertical, 12)
     }
     
-    @ViewBuilder
-    private var contentArea: some View {
-        if viewModel.isLoading {
-            ProgressView()
-        } else if viewModel.contentItems.isEmpty {
-            VStack {
-                Text("No content available")
-                    .foregroundColor(.white)
-                
-                #if DEBUG
-                Button(action: {
-                    Task {
-                        try? await viewModel.loadTestData()
+    private var contentFeed: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(spacing: 0) {
+                    ForEach(viewModel.contentItems.indices, id: \.self) { index in
+                        ContentItemView(content: viewModel.contentItems[index])
+                            .frame(height: UIScreen.main.bounds.height)
+                            .id(index)
+                            .onAppear {
+                                viewModel.currentIndex = index
+                            }
                     }
-                }) {
-                    Text("Load Test Data")
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
-                }
-                #endif
-            }
-        } else {
-            TabView(selection: $viewModel.currentIndex) {
-                ForEach(viewModel.contentItems.indices, id: \.self) { index in
-                    ContentItemView(content: viewModel.contentItems[index])
-                        .tag(index)
                 }
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
+            .scrollTargetBehavior(.paging)
+            .scrollTargetLayout()
         }
     }
 }
