@@ -19,8 +19,8 @@ struct ContentFeedView: View {
             await viewModel.loadUnlockedNeighborhoods()
             await viewModel.loadContent()
         }
-        .onChange(of: appState.lastUnlockedNeighborhoodId) { newId in
-            if let newId = newId,
+        .onChange(of: appState.lastUnlockedNeighborhoodId) { oldValue, newValue in
+            if let newId = newValue,
                let neighborhood = viewModel.unlockedNeighborhoods.first(where: { $0.id == newId }) {
                 viewModel.selectedNeighborhood = neighborhood
                 Task {
@@ -54,30 +54,45 @@ struct ContentFeedView: View {
     
     private var categorySelector: some View {
         HStack(spacing: 16) {
-            CategoryPill(title: "Restaurants", isSelected: viewModel.selectedCategory == "restaurant")
-                .onTapGesture { viewModel.categorySelected("restaurant") }
-            CategoryPill(title: "Events", isSelected: viewModel.selectedCategory == "event")
-                .onTapGesture { viewModel.categorySelected("event") }
+            CategoryPill(title: "Restaurants", isSelected: viewModel.selectedCategory == .restaurant)
+                .onTapGesture { viewModel.categorySelected(.restaurant) }
+            CategoryPill(title: "Events", isSelected: viewModel.selectedCategory == .event)
+                .onTapGesture { viewModel.categorySelected(.event) }
         }
         .padding(.vertical, 12)
     }
     
+    @ViewBuilder
     private var contentArea: some View {
-        Group {
-            if viewModel.isLoading {
-                ProgressView()
-            } else if viewModel.contentItems.isEmpty {
+        if viewModel.isLoading {
+            ProgressView()
+        } else if viewModel.contentItems.isEmpty {
+            VStack {
                 Text("No content available")
                     .foregroundColor(.white)
-            } else {
-                TabView(selection: $viewModel.currentIndex) {
-                    ForEach(viewModel.contentItems.indices, id: \.self) { index in
-                        ContentItemView(content: viewModel.contentItems[index])
-                            .tag(index)
+                
+                #if DEBUG
+                Button(action: {
+                    Task {
+                        try? await viewModel.loadTestData()
                     }
+                }) {
+                    Text("Load Test Data")
+                        .padding()
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
+                #endif
             }
+        } else {
+            TabView(selection: $viewModel.currentIndex) {
+                ForEach(viewModel.contentItems.indices, id: \.self) { index in
+                    ContentItemView(content: viewModel.contentItems[index])
+                        .tag(index)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
         }
     }
 }

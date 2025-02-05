@@ -1,6 +1,7 @@
 import FirebaseFirestore
 import FirebaseStorage
 import AVKit
+import FirebaseAuth
 
 protocol FirestoreServiceProtocol {
     // Neighborhoods
@@ -9,11 +10,13 @@ protocol FirestoreServiceProtocol {
     
     // Test Data
     func populateTestData() async throws
+    func unlockTestNeighborhood(for userId: String) async throws
+    func deleteAllTestData() async throws
     
     // Content
     func fetchContentForPlace(placeId: String) async throws -> [Content]
     func fetchContentByCategory(category: String) async throws -> [Content]
-    func fetchContentByCategory(category: String, neighborhoodId: String) async throws -> [Content]
+    func fetchContentByCategory(category: ContentType, neighborhoodId: String) async throws -> [Content]
     
     // Detection
     func saveDetectionResult(landmarkName: String) async throws
@@ -77,17 +80,34 @@ class FirestoreService: FirestoreServiceProtocol {
         return contents
     }
     
-    func fetchContentByCategory(category: String, neighborhoodId: String) async throws -> [Content] {
+    private func getDownloadURL(for gsPath: String) async throws -> URL {
+        // Convert gs:// path to downloadable URL
+        let storageRef = storage.reference(forURL: gsPath)
+        return try await storageRef.downloadURL()
+    }
+    
+    func fetchContentByCategory(category: ContentType, neighborhoodId: String) async throws -> [Content] {
+        print("🔍 Fetching content for neighborhood: \(neighborhoodId), category: \(category.rawValue)")
         let snapshot = try await db.collection("content")
             .whereField("neighborhoodId", isEqualTo: neighborhoodId)
-            .whereField("type", isEqualTo: category)
+            .whereField("type", isEqualTo: category.rawValue)
             .order(by: "createdAt", descending: true)
             .limit(to: 5)
             .getDocuments()
+        
+        // Get contents and resolve video URLs
+        var contents: [Content] = []
+        for doc in snapshot.documents {
+            guard var content = try? doc.data(as: Content.self) else { continue }
             
-        return snapshot.documents.compactMap { doc in
-            try? doc.data(as: Content.self)
+            // Convert gs:// URL to https:// URL
+            let downloadURL = try await getDownloadURL(for: content.videoUrl)
+            content.videoUrl = downloadURL.absoluteString
+            contents.append(content)
         }
+        
+        print("📦 Found \(contents.count) content items")
+        return contents
     }
     
     private func preloadVideos(for contents: [Content]) async {
@@ -104,8 +124,34 @@ class FirestoreService: FirestoreServiceProtocol {
     
     // MARK: - Test Data Population
     func populateTestData() async throws {
+        // Add test content mixing restaurants and events
+        let contentItems = [
+            // Downtown Austin - Restaurants
+            (placeId: "franklins_bbq", type: ContentType.restaurant, caption: "Best brisket in Austin! 🍖"),
+            (placeId: "franklins_bbq", type: ContentType.restaurant, caption: "Worth the wait in line"),
+            (placeId: "franklins_bbq", type: ContentType.restaurant, caption: "Morning line check - get here early! ⏰"),
+            
+            // Downtown Austin - Events
+            (placeId: "franklins_bbq", type: ContentType.event, caption: "Live music on the patio! 🎸"),
+            (placeId: "franklins_bbq", type: ContentType.event, caption: "BBQ masterclass this weekend"),
+            
+            // Butler Shores - Restaurants
+            (placeId: "cosmic_coffee", type: ContentType.restaurant, caption: "Perfect morning coffee ☕️"),
+            (placeId: "cosmic_coffee", type: ContentType.restaurant, caption: "Beer garden vibes 🍺"),
+            (placeId: "cosmic_coffee", type: ContentType.restaurant, caption: "Food truck heaven!"),
+            
+            // Butler Shores - Events
+            (placeId: "cosmic_coffee", type: ContentType.event, caption: "Live music night! 🎸"),
+            (placeId: "cosmic_coffee", type: ContentType.event, caption: "Sunday morning yoga in the garden 🧘‍♀️"),
+            (placeId: "cosmic_coffee", type: ContentType.event, caption: "Local artist showcase tonight!")
+        ]
+        
+        // Add more video URLs to cycle through
         let videoUrls = [
             "gs://sightline-app-gauntlet.firebasestorage.app/vid1.mp4",
+            "gs://sightline-app-gauntlet.firebasestorage.app/vid2.mp4",
+            "gs://sightline-app-gauntlet.firebasestorage.app/vid3.mp4",
+            "gs://sightline-app-gauntlet.firebasestorage.app/vid1.mp4",  // Reuse videos for now
             "gs://sightline-app-gauntlet.firebasestorage.app/vid2.mp4",
             "gs://sightline-app-gauntlet.firebasestorage.app/vid3.mp4"
         ]
@@ -174,22 +220,15 @@ class FirestoreService: FirestoreServiceProtocol {
             try await addPlace(place)
         }
         
-        // Add test content mixing restaurants and events
-        let contentItems = [
-            (placeId: "franklins_bbq", category: "restaurant", caption: "Best brisket in Austin! 🍖"),
-            (placeId: "franklins_bbq", category: "restaurant", caption: "Worth the wait in line"),
-            (placeId: "cosmic_coffee", category: "event", caption: "Live music night! 🎸"),
-        ]
-        
         // Distribute our 3 videos across the content items
         for (index, item) in contentItems.enumerated() {
             let content = Content(
                 id: "content_\(index)",
                 placeId: item.placeId,
                 authorId: "test_author",
-                type: .highlight,
+                type: item.type,
                 videoUrl: videoUrls[index % videoUrls.count],
-                thumbnailUrl: "", // We can add these later if needed
+                thumbnailUrl: "",
                 caption: item.caption,
                 tags: ["austin", "local"],
                 likes: Int.random(in: 10...100),
@@ -255,5 +294,52 @@ class FirestoreService: FirestoreServiceProtocol {
         
         try await db.collection("detectedLandmarks")
             .addDocument(data: landmarkData)
+    }
+    
+    func unlockTestNeighborhood(for userId: String) async throws {
+        // Unlock downtown_austin by default
+        try await db.collection("users")
+            .document(userId)
+            .collection("unlocked_neighborhoods")
+            .document("downtown_austin")
+            .setData([
+                "unlocked_at": FieldValue.serverTimestamp(),
+                "unlocked_by_landmark": "Test Data",
+                "landmark_location": GeoPoint(
+                    latitude: 30.2672,
+                    longitude: -97.7431
+                )
+            ])
+    }
+    
+    func deleteAllTestData() async throws {
+        // Delete content
+        let contentSnapshot = try await db.collection("content").getDocuments()
+        for doc in contentSnapshot.documents {
+            try await doc.reference.delete()
+        }
+        
+        // Delete places
+        let placesSnapshot = try await db.collection("places").getDocuments()
+        for doc in placesSnapshot.documents {
+            try await doc.reference.delete()
+        }
+        
+        // Delete neighborhoods
+        let neighborhoodsSnapshot = try await db.collection("neighborhoods").getDocuments()
+        for doc in neighborhoodsSnapshot.documents {
+            try await doc.reference.delete()
+        }
+        
+        // Delete unlocked neighborhoods for all users
+        if let userId = Auth.auth().currentUser?.uid {
+            let unlockedSnapshot = try await db.collection("users")
+                .document(userId)
+                .collection("unlocked_neighborhoods")
+                .getDocuments()
+            for doc in unlockedSnapshot.documents {
+                try await doc.reference.delete()
+            }
+        }
     }
 } 

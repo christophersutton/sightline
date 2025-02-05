@@ -3,22 +3,22 @@ import FirebaseFirestore
 import FirebaseAuth
 import Combine
 
+@MainActor
 class ContentFeedViewModel: ObservableObject {
     @Published var unlockedNeighborhoods: [Neighborhood] = []
     @Published var selectedNeighborhood: Neighborhood?
-    @Published var selectedCategory: String = "restaurant"
+    @Published var selectedCategory: ContentType = .restaurant
     @Published var contentItems: [Content] = []
     @Published var currentIndex: Int = 0
     @Published var isLoading = false
     
-    private let firestoreService = FirestoreService()
     private let services = ServiceContainer.shared
     
     func loadUnlockedNeighborhoods() async {
-        guard let uid = Auth.auth().currentUser?.uid else { return }
+        guard let userId = services.auth.userId else { return }
         
         do {
-            let neighborhoods = try await firestoreService.fetchUnlockedNeighborhoods(for: uid)
+            let neighborhoods = try await services.firestore.fetchUnlockedNeighborhoods(for: userId)
             await MainActor.run {
                 self.unlockedNeighborhoods = neighborhoods
                 if self.selectedNeighborhood == nil {
@@ -32,10 +32,14 @@ class ContentFeedViewModel: ObservableObject {
     
     // Called when tab becomes active
     func loadContent() async {
-        guard let neighborhood = selectedNeighborhood else { return }
+        guard let neighborhood = selectedNeighborhood else {
+            print("❌ No neighborhood selected")
+            return
+        }
         
-        isLoading = true
+        await MainActor.run { isLoading = true }
         do {
+            print("🔄 Loading content for neighborhood: \(neighborhood.name), category: \(selectedCategory.rawValue)")
             let content = try await services.firestore.fetchContentByCategory(
                 category: selectedCategory,
                 neighborhoodId: neighborhood.id
@@ -43,19 +47,50 @@ class ContentFeedViewModel: ObservableObject {
             
             await MainActor.run {
                 self.contentItems = content
+                print("✅ Loaded \(content.count) content items")
                 self.isLoading = false
             }
         } catch {
-            print("Error loading content: \(error)")
-            isLoading = false
+            print("❌ Error loading content: \(error)")
+            await MainActor.run { isLoading = false }
         }
     }
     
     // Called when category changes
-    func categorySelected(_ category: String) {
+    func categorySelected(_ category: ContentType) {
         selectedCategory = category
         Task {
             await loadContent()
         }
+    }
+    
+    func loadTestData() async throws {
+        isLoading = true
+        do {
+            print("🔄 Starting test data load...")
+            
+            // First populate test data
+            try await services.firestore.populateTestData()
+            print("✅ Test data populated")
+            
+            // Then unlock a test neighborhood
+            guard let userId = services.auth.userId else {
+                print("❌ No user ID found")
+                return
+            }
+            try await services.firestore.unlockTestNeighborhood(for: userId)
+            print("✅ Test neighborhood unlocked")
+            
+            // Load the unlocked neighborhoods
+            await loadUnlockedNeighborhoods()
+            print("✅ Neighborhoods loaded: \(unlockedNeighborhoods.count)")
+            
+            // Finally load content
+            await loadContent()
+            print("✅ Content loaded: \(contentItems.count) items")
+        } catch {
+            print("❌ Error loading test data: \(error)")
+        }
+        isLoading = false
     }
 } 

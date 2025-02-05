@@ -13,45 +13,12 @@ struct NeighborhoodSelector: View {
                         isSelected: selected?.id == neighborhood.id
                     )
                     .onTapGesture {
-                        withAnimation(.spring()) {
-                            selected = neighborhood
-                        }
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        selected = neighborhood
                     }
                 }
             }
-            .padding(.horizontal, 16)
+            .padding()
         }
-        .background {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .blur(radius: 3)
-                .ignoresSafeArea()
-        }
+        .background(.ultraThinMaterial)
     }
 }
-
-struct NeighborhoodPill: View {
-    let neighborhood: Neighborhood
-    let isSelected: Bool
-    
-    var body: some View {
-        HStack(spacing: 8) {
-            Text("📍") // We can customize icons per neighborhood later
-            Text(neighborhood.name)
-                .font(.subheadline)
-                .fontWeight(isSelected ? .semibold : .regular)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background {
-            Capsule()
-                .fill(isSelected ? .white : .white.opacity(0.3))
-                .overlay {
-                    Capsule()
-                        .stroke(.white.opacity(0.3), lineWidth: 1)
-                }
-        }
-        .foregroundColor(isSelected ? .black : .white)
-    }
-} 

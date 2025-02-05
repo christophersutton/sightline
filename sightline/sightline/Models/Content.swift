@@ -1,9 +1,9 @@
 import FirebaseFirestore
 
 enum ContentType: String, Codable {
-    case review
-    case highlight
-    case event
+    case restaurant = "restaurant"
+    case event = "event"
+    case highlight = "highlight"
 }
 
 struct Content: Identifiable, Codable {
@@ -13,7 +13,7 @@ struct Content: Identifiable, Codable {
     let type: ContentType
     
     // Media
-    let videoUrl: String
+    var videoUrl: String
     let thumbnailUrl: String
     
     // Content details
