@@ -23,7 +23,7 @@ struct LandmarkInfo: Identifiable {
         self.websiteUrl = (knowledgeGraphData?["url"] as? String)
         self.imageUrl = (knowledgeGraphData?["image"] as? [String: Any])?["contentUrl"] as? String
         
-      if let firstLocation = (locationData?.first),
+        if let firstLocation = (locationData?.first),
            let latLng = firstLocation["latLng"] as? [String: Any] {
             self.latitude = latLng["latitude"] as? Double
             self.longitude = latLng["longitude"] as? Double
@@ -32,7 +32,36 @@ struct LandmarkInfo: Identifiable {
             self.longitude = nil
         }
         
-        self.neighborhood = neighborhoodData != nil ? Neighborhood(from: neighborhoodData!) : nil
+        if let neighborhoodData = neighborhoodData {
+            // Create a Neighborhood manually from the dictionary
+            let id = neighborhoodData["place_id"] as? String ?? ""
+            let name = neighborhoodData["name"] as? String ?? ""
+            let formattedAddress = neighborhoodData["formatted_address"] as? String ?? ""
+            let boundsData = neighborhoodData["bounds"] as? [String: Any] ?? [:]
+            
+            let neData = boundsData["northeast"] as? [String: Any] ?? [:]
+            let swData = boundsData["southwest"] as? [String: Any] ?? [:]
+            
+            let bounds = GeoBounds(
+                northeast: GeoPoint(
+                    latitude: neData["lat"] as? Double ?? 0,
+                    longitude: neData["lng"] as? Double ?? 0
+                ),
+                southwest: GeoPoint(
+                    latitude: swData["lat"] as? Double ?? 0,
+                    longitude: swData["lng"] as? Double ?? 0
+                )
+            )
+            
+            self.neighborhood = Neighborhood(
+                id: id,
+                name: name,
+                formattedAddress: formattedAddress,
+                bounds: bounds
+            )
+        } else {
+            self.neighborhood = nil
+        }
     }
 }
 

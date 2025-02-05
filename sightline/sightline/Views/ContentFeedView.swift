@@ -6,25 +6,70 @@ struct ContentFeedView: View {
     @StateObject private var viewModel = ContentFeedViewModel()
     
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            
-            VStack(spacing: 0) {
-                neighborhoodSelector
-                categorySelector
-                contentArea
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                
+                VStack(spacing: 0) {
+                    neighborhoodSelector
+                    categorySelector
+                    
+                    if viewModel.isLoading {
+                        ProgressView()
+                    } else if viewModel.contentItems.isEmpty {
+                        VStack {
+                            Text("No content available")
+                                .foregroundColor(.white)
+                            
+                            #if DEBUG
+                            Button(action: {
+                                Task {
+                                    try? await viewModel.loadTestData()
+                                }
+                            }) {
+                                Text("Load Test Data")
+                                    .padding()
+                                    .background(Color.blue)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(8)
+                            }
+                            #endif
+                        }
+                    } else {
+                        VerticalFeedView(
+                            currentIndex: $viewModel.currentIndex,
+                            itemCount: viewModel.contentItems.count,
+                            onIndexChanged: { index in
+                                viewModel.currentIndex = index
+                            }
+                        ) {
+                            ForEach(viewModel.contentItems.indices, id: \.self) { index in
+                                ContentItemView(content: viewModel.contentItems[index])
+                                    .environmentObject(viewModel)
+                                    .navigationDestination(for: NavigationDestination.self) { destination in
+                                        switch destination {
+                                        case .placeDetail(let placeId, let contentId):
+                                            if let place = viewModel.places[placeId] {
+                                                PlaceDetailView(place: place, initialContentId: contentId)
+                                            }
+                                        }
+                                    }
+                            }
+                        }
+                    }
+                }
             }
-        }
-        .task {
-            await viewModel.loadUnlockedNeighborhoods()
-            await viewModel.loadContent()
-        }
-        .onChange(of: appState.lastUnlockedNeighborhoodId) { oldValue, newValue in
-            if let newId = newValue,
-               let neighborhood = viewModel.unlockedNeighborhoods.first(where: { $0.id == newId }) {
-                viewModel.selectedNeighborhood = neighborhood
-                Task {
-                    await viewModel.loadContent()
+            .task {
+                await viewModel.loadUnlockedNeighborhoods()
+                await viewModel.loadContent()
+            }
+            .onChange(of: appState.lastUnlockedNeighborhoodId) { oldValue, newValue in
+                if let newId = newValue,
+                   let neighborhood = viewModel.unlockedNeighborhoods.first(where: { $0.id == newId }) {
+                    viewModel.selectedNeighborhood = neighborhood
+                    Task {
+                        await viewModel.loadContent()
+                    }
                 }
             }
         }
@@ -61,40 +106,6 @@ struct ContentFeedView: View {
         }
         .padding(.vertical, 12)
     }
-    
-    @ViewBuilder
-    private var contentArea: some View {
-        if viewModel.isLoading {
-            ProgressView()
-        } else if viewModel.contentItems.isEmpty {
-            VStack {
-                Text("No content available")
-                    .foregroundColor(.white)
-                
-                #if DEBUG
-                Button(action: {
-                    Task {
-                        try? await viewModel.loadTestData()
-                    }
-                }) {
-                    Text("Load Test Data")
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
-                }
-                #endif
-            }
-        } else {
-            TabView(selection: $viewModel.currentIndex) {
-                ForEach(viewModel.contentItems.indices, id: \.self) { index in
-                    ContentItemView(content: viewModel.contentItems[index])
-                        .tag(index)
-                }
-            }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-        }
-    }
 }
 
 struct CategoryPill: View {
@@ -109,4 +120,4 @@ struct CategoryPill: View {
             .foregroundColor(isSelected ? .black : .white)
             .cornerRadius(20)
     }
-} 
+}

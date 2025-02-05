@@ -1,35 +1,20 @@
 import FirebaseFirestore  // For GeoPoint
 
-struct Neighborhood: Identifiable {
-    let id: String // This will be the place_id
+struct Neighborhood: Identifiable, Codable {
+    let id: String
     let name: String
     let formattedAddress: String
     let bounds: GeoBounds
     
-    init(from dict: [String: Any]) {
-        self.id = dict["place_id"] as? String ?? ""
-        self.name = dict["name"] as? String ?? ""
-        self.formattedAddress = dict["formatted_address"] as? String ?? ""
-        self.bounds = GeoBounds(from: dict["bounds"] as? [String: Any] ?? [:])
+    enum CodingKeys: String, CodingKey {
+        case id = "place_id"
+        case name
+        case formattedAddress = "formatted_address"
+        case bounds
     }
 }
 
-struct GeoBounds {
+struct GeoBounds: Codable {
     let northeast: GeoPoint
     let southwest: GeoPoint
-    
-    init(from dict: [String: Any]) {
-        let ne = dict["northeast"] as? [String: Any] ?? [:]
-        let sw = dict["southwest"] as? [String: Any] ?? [:]
-        
-        self.northeast = GeoPoint(
-            latitude: ne["lat"] as? Double ?? 0,
-            longitude: ne["lng"] as? Double ?? 0
-        )
-        self.southwest = GeoPoint(
-            latitude: sw["lat"] as? Double ?? 0,
-            longitude: sw["lng"] as? Double ?? 0
-        )
-    }
 }
-

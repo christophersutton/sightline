@@ -3,27 +3,37 @@ import FirebaseFirestore
 import FirebaseAuth
 import Combine
 
+enum NavigationDestination: Hashable {
+    case placeDetail(placeId: String, initialContentId: String)
+}
+
 @MainActor
 class ContentFeedViewModel: ObservableObject {
     @Published var unlockedNeighborhoods: [Neighborhood] = []
     @Published var selectedNeighborhood: Neighborhood?
     @Published var selectedCategory: ContentType = .restaurant
     @Published var contentItems: [Content] = []
-    @Published var currentIndex: Int = 0
+    @Published var currentIndex: Int = 0 {
+        didSet {
+            if currentIndex != oldValue {
+                videoManager.activatePlayer(at: currentIndex)
+            }
+        }
+    }
     @Published var isLoading = false
+    @Published var places: [String: Place] = [:] // Cache of places by ID
     
+    let videoManager = VideoPlayerManager()
     private let services = ServiceContainer.shared
-    
+
     func loadUnlockedNeighborhoods() async {
         guard let userId = services.auth.userId else { return }
         
         do {
             let neighborhoods = try await services.firestore.fetchUnlockedNeighborhoods(for: userId)
-            await MainActor.run {
-                self.unlockedNeighborhoods = neighborhoods
-                if self.selectedNeighborhood == nil {
-                    self.selectedNeighborhood = neighborhoods.first
-                }
+            self.unlockedNeighborhoods = neighborhoods
+            if self.selectedNeighborhood == nil {
+                self.selectedNeighborhood = neighborhoods.first
             }
         } catch {
             print("Error loading neighborhoods: \(error)")
@@ -37,7 +47,7 @@ class ContentFeedViewModel: ObservableObject {
             return
         }
         
-        await MainActor.run { isLoading = true }
+        isLoading = true
         do {
             print("🔄 Loading content for neighborhood: \(neighborhood.name), category: \(selectedCategory.rawValue)")
             let content = try await services.firestore.fetchContentByCategory(
@@ -45,14 +55,33 @@ class ContentFeedViewModel: ObservableObject {
                 neighborhoodId: neighborhood.id
             )
             
-            await MainActor.run {
-                self.contentItems = content
-                print("✅ Loaded \(content.count) content items")
-                self.isLoading = false
+            // Fetch places for all content items
+            var placeMap: [String: Place] = [:]
+            for item in content {
+                do {
+                    let place = try await services.firestore.fetchPlace(id: item.placeId)
+                    placeMap[item.placeId] = place
+                } catch {
+                    print("Error loading place \(item.placeId): \(error)")
+                }
             }
+            
+            self.contentItems = content
+            self.places = placeMap
+            print("✅ Loaded \(content.count) content items")
+            
+            // Reset to first item and preload videos
+            if !content.isEmpty {
+                self.currentIndex = 0
+                let urls = content.map { $0.videoUrl }
+                videoManager.preloadVideos(for: urls, at: currentIndex)
+                videoManager.activatePlayer(at: currentIndex)
+            }
+            
+            isLoading = false
         } catch {
             print("❌ Error loading content: \(error)")
-            await MainActor.run { isLoading = false }
+            isLoading = false
         }
     }
     
@@ -93,4 +122,4 @@ class ContentFeedViewModel: ObservableObject {
         }
         isLoading = false
     }
-} 
+}
