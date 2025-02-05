@@ -10,7 +10,12 @@ struct ContentItemView: View {
     
     init(content: Content) {
         self.content = content
-        self._viewModel = StateObject(wrappedValue: ContentItemViewModel(content: content))
+        self._viewModel = StateObject(
+            wrappedValue: ContentItemViewModel(
+                content: content,
+                videoManager: VideoPlayerManager.shared // If making singleton
+            )
+        )
     }
     
     var body: some View {
@@ -70,9 +75,13 @@ struct ContentItemView: View {
             }
         }
         .onAppear {
+            feedViewModel.videoManager.prepareForDisplay()
             Task {
                 await viewModel.loadPlace()
             }
+        }
+        .onDisappear {
+            feedViewModel.videoManager.cleanup()
         }
     }
 }
@@ -84,7 +93,7 @@ final class ContentItemViewModel: ObservableObject {
     private let content: Content
     private let services: ServiceContainer
     
-    init(content: Content) {
+    init(content: Content, videoManager: VideoPlayerManager) {
         self.content = content
         self.services = ServiceContainer.shared
     }
@@ -93,17 +102,28 @@ final class ContentItemViewModel: ObservableObject {
         isLoadingPlace = true
         do {
             let place = try await services.firestore.fetchPlace(id: content.placeId)
-            self.placeName = place.name
+            await MainActor.run {
+                self.placeName = place.name
+            }
         } catch {
-            print("❌ Error loading place: \(error)")
+            await handlePlaceLoadError(error)
         }
         isLoadingPlace = false
+    }
+    
+    private func handlePlaceLoadError(_ error: Error) async {
+        await MainActor.run {
+            // Update state for error display
+            print("🔴 Critical place load error: \(error.localizedDescription)")
+        }
     }
 }
 
 private struct VideoPlayerManagerKey: EnvironmentKey {
+    @MainActor
     static let defaultValue: VideoPlayerManager = {
         let manager = VideoPlayerManager()
+        // Ensure any UI-related setup happens here
         return manager
     }()
 }
