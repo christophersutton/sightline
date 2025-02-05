@@ -1,8 +1,8 @@
 import SwiftUI
-import Firebase
+import FirebaseCore
 
 @main
-struct sightlineApp: App {
+struct SightlineApp: App {
     init() {
         // Configure Firebase when the app starts.
         FirebaseApp.configure()

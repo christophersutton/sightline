@@ -16,6 +16,38 @@
 
 import * as functions from "firebase-functions/v1";
 import vision from "@google-cloud/vision";
+import * as admin from "firebase-admin";
+
+// Fetch Neighborhood Data
+/**
+ * Fetches information from the Knowledge Graph API for a given landmark ID.
+ * @param {string} latitude - The latitude of the landmark.
+ * @param {string} longitude - The longitude of the landmark.
+ * @return {Promise<Object>} The information from the Knowledge Graph API.
+ */
+async function fetchNeighborhoodData(latitude, longitude) {
+  const API_KEY = functions.config().google.maps_api_key;
+  const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&result_type=neighborhood&key=${API_KEY}`;
+
+  try {
+    const response = await fetch(url);
+    const data = await response.json();
+    console.log(data);
+    if (data.results && data.results.length > 0) {
+      const neighborhood = data.results[0];
+      return {
+        place_id: neighborhood.place_id,
+        name: neighborhood.address_components[0].long_name,
+        bounds: neighborhood.geometry.bounds,
+        formatted_address: neighborhood.formatted_address,
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error("Error fetching neighborhood data:", error);
+    return null;
+  }
+}
 
 // This will allow only requests with an auth token to access the Vision
 // API, including anonymous ones.
@@ -27,46 +59,63 @@ import vision from "@google-cloud/vision";
 //    || context.auth.token?.firebase?.email_verified === false
 // Also see: https://firebase.google.com/docs/auth/admin/custom-claims
 export const annotateImage = functions.https.onCall(async (data, context) => {
-  // Check if the caller is authenticated
   if (!context?.auth) {
-    console.error("Unauthenticated access attempt.");
     throw new functions.https.HttpsError(
         "unauthenticated",
         "annotateImage must be called while authenticated.",
     );
   }
 
-  // Log authentication details if required
-  // (do not log sensitive details in production)
-  console.log("annotateImage called by user:", context.auth.uid);
-
-  // Log the request data for debugging
-  // (you can remove sensitive fields in production)
-  console.log("Request Data:", JSON.stringify(data, null, 2));
-
-  // Additional basic validation and logging for the payload structure
-  if (!data.image || !data.image.content) {
-    console.error("Malformed request: Missing image content.");
-  }
-  if (!data.features || !Array.isArray(data.features)) {
-    console.warn("'features' expects array. Received:", data.features);
-  }
-
-  // Initialize the Vision client
   const client = new vision.ImageAnnotatorClient();
 
   try {
-    // Call the Vision API; the method returns an array
-    // where the first element is the result.
     const [result] = await client.annotateImage(data);
 
-    // Log the response from the Vision API
-    console.log("Vision API response:", JSON.stringify(result, null, 2));
+    // If no landmarks found, return null
+    if (!result.landmarkAnnotations?.length) {
+      return {landmark: null};
+    }
 
-    // Return the result to the client
-    return result;
+    // Get the first landmark
+    const firstLandmark = result.landmarkAnnotations[0];
+    console.log(firstLandmark);
+    const location = firstLandmark.locations[0].latLng;
+
+    // Fetch Knowledge Graph data for just this landmark
+    const neighborhoodData = await fetchNeighborhoodData(
+        location.latitude,
+        location.longitude,
+    );
+
+    // After getting neighborhoodData but before returning
+    if (neighborhoodData?.place_id) {
+      // Store/update neighborhood reference data
+      const db = admin.firestore();
+      await db.collection("neighborhoods").doc(neighborhoodData.place_id).set({
+        name: neighborhoodData.name,
+        bounds: neighborhoodData.bounds,
+        landmarks: admin.firestore.FieldValue.arrayUnion({
+          name: firstLandmark.description,
+          location: new admin.firestore.GeoPoint(
+              location.latitude,
+              location.longitude,
+          ),
+        }),
+      }, {merge: true}); // Use merge to preserve existing landmark entries
+    }
+
+    // Return a simplified response with just what we need
+    const landmark = {
+      landmark: {
+        name: firstLandmark.description,
+        score: firstLandmark.score,
+        locations: firstLandmark.locations,
+        neighborhood: neighborhoodData,
+      },
+    };
+    console.log(landmark);
+    return landmark;
   } catch (err) {
-    // Log the error with as much detail as possible for debugging.
     console.error("Error calling Vision API:", err);
     throw new functions.https.HttpsError("internal", err.message);
   }
