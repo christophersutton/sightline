@@ -223,11 +223,13 @@ class FirestoreService: FirestoreServiceProtocol {
     
     func fetchUnlockedNeighborhoods(for userId: String) async throws -> [Neighborhood] {
         print("🔍 Fetching unlocked neighborhoods for user: \(userId)")
-        let snapshot = try await db.collection("user_neighborhoods")
+        
+        // First get the unlocked neighborhood IDs
+        let unlockedSnapshot = try await db.collection("user_neighborhoods")
             .whereField("userId", isEqualTo: userId)
             .getDocuments()
         
-        let neighborhoodIds = snapshot.documents.compactMap { document -> String? in
+        let neighborhoodIds = unlockedSnapshot.documents.compactMap { document -> String? in
             let data = document.data()
             return data["neighborhoodId"] as? String
         }
@@ -237,14 +239,12 @@ class FirestoreService: FirestoreServiceProtocol {
             return []
         }
         
-        // Fetch all neighborhoods in parallel
-        async let neighborhoodsQuery = db.collection("neighborhoods")
+        // Then fetch the actual neighborhoods
+        let neighborhoodSnapshot = try await db.collection("neighborhoods")
             .whereField(FieldPath.documentID(), in: neighborhoodIds)
             .getDocuments()
         
-        let neighborhoodDocs = try await neighborhoodsQuery
-        
-        let neighborhoods = neighborhoodDocs.documents.compactMap { document -> Neighborhood? in
+        let neighborhoods = neighborhoodSnapshot.documents.compactMap { document -> Neighborhood? in
             guard let neighborhood = try? document.data(as: Neighborhood.self) else {
                 print("⚠️ Failed to decode neighborhood: \(document.documentID)")
                 return nil

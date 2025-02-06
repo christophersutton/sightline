@@ -1,5 +1,4 @@
 import SwiftUI
-import FirebaseFirestore
 
 struct ContentFeedView: View {
     @EnvironmentObject var appState: AppState
@@ -46,14 +45,6 @@ struct ContentFeedView: View {
                             ForEach(viewModel.contentItems.indices, id: \.self) { index in
                                 ContentItemView(content: viewModel.contentItems[index])
                                     .environmentObject(viewModel)
-                                    .navigationDestination(for: NavigationDestination.self) { destination in
-                                        switch destination {
-                                        case .placeDetail(let placeId, let contentId):
-                                            if let place = viewModel.places[placeId] {
-                                                PlaceDetailView(place: place, initialContentId: contentId)
-                                            }
-                                        }
-                                    }
                             }
                         }
                     }
@@ -75,7 +66,6 @@ struct ContentFeedView: View {
         }
     }
     
-    // Break up into smaller views
     private var neighborhoodSelector: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {

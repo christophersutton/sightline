@@ -15,8 +15,8 @@ class ContentFeedViewModel: ObservableObject {
     @Published var contentItems: [Content] = []
     @Published var currentIndex: Int = 0 {
         didSet {
-            if currentIndex != oldValue {
-                videoManager.activatePlayer(at: currentIndex)
+            if currentIndex != oldValue && !contentItems.isEmpty {
+                videoManager.activatePlayer(at: contentItems[currentIndex].videoUrl)
             }
         }
     }
@@ -75,7 +75,7 @@ class ContentFeedViewModel: ObservableObject {
                 self.currentIndex = 0
                 let urls = content.map { $0.videoUrl }
                 videoManager.preloadVideos(for: urls, at: currentIndex)
-                videoManager.activatePlayer(at: currentIndex)
+                videoManager.activatePlayer(at: content[0].videoUrl)
             }
             
             isLoading = false

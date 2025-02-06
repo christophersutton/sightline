@@ -122,6 +122,9 @@ class LandmarkDetectionViewModel: ObservableObject {
                         detectedLandmark = landmark
                     }
                     
+                    // Save successful detection
+                    await saveDetectionResult(landmarkName: landmarkName)
+                    
                     // Handle neighborhood unlock
                     await handleNeighborhoodUnlock(landmark: landmark)
                     

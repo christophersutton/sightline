@@ -13,7 +13,7 @@ struct ContentItemView: View {
         self._viewModel = StateObject(
             wrappedValue: ContentItemViewModel(
                 content: content,
-                videoManager: VideoPlayerManager.shared // If making singleton
+                services: ServiceContainer.shared
             )
         )
     }
@@ -38,7 +38,7 @@ struct ContentItemView: View {
                             .foregroundColor(.white)
                         Button("Retry") {
                             Task {
-                                await feedViewModel.loadContent()
+                                await feedViewModel.videoManager.prepareForDisplay(url: content.videoUrl)
                             }
                         }
                         .foregroundColor(.blue)
@@ -75,8 +75,8 @@ struct ContentItemView: View {
             }
         }
         .onAppear {
-            feedViewModel.videoManager.prepareForDisplay()
             Task {
+                await feedViewModel.videoManager.prepareForDisplay(url: content.videoUrl)
                 await viewModel.loadPlace()
             }
         }
@@ -93,9 +93,9 @@ final class ContentItemViewModel: ObservableObject {
     private let content: Content
     private let services: ServiceContainer
     
-    init(content: Content, videoManager: VideoPlayerManager) {
+    init(content: Content, services: ServiceContainer) {
         self.content = content
-        self.services = ServiceContainer.shared
+        self.services = services
     }
     
     func loadPlace() async {
@@ -116,21 +116,5 @@ final class ContentItemViewModel: ObservableObject {
             // Update state for error display
             print("🔴 Critical place load error: \(error.localizedDescription)")
         }
-    }
-}
-
-private struct VideoPlayerManagerKey: EnvironmentKey {
-    @MainActor
-    static let defaultValue: VideoPlayerManager = {
-        let manager = VideoPlayerManager()
-        // Ensure any UI-related setup happens here
-        return manager
-    }()
-}
-
-extension EnvironmentValues {
-    var videoPlayerManager: VideoPlayerManager {
-        get { self[VideoPlayerManagerKey.self] }
-        set { self[VideoPlayerManagerKey.self] = newValue }
     }
 }
