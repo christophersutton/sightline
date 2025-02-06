@@ -81,17 +81,21 @@ class LandmarkDetectionViewModel: ObservableObject {
         self.appState = appState
     }
     
-    func detectLandmark(for image: UIImage) {
-        isLoading = true
-        detectionResult = "Detecting..."
-        detectedLandmark = nil
+    func detectLandmark(for image: UIImage) async {
+        await MainActor.run {
+            isLoading = true
+            detectionResult = "Detecting..."
+            detectedLandmark = nil
+        }
         
         guard let imageData = image.jpegData(compressionQuality: 0.8) else {
-            detectionResult = "Image conversion failed."
+            await MainActor.run {
+                detectionResult = "Image conversion failed."
+            }
             return
         }
-        let base64String = imageData.base64EncodedString()
         
+        let base64String = imageData.base64EncodedString()
         let requestData: [String: Any] = [
             "image": ["content": base64String],
             "features": [
@@ -99,47 +103,49 @@ class LandmarkDetectionViewModel: ObservableObject {
             ]
         ]
         
-        Task {
-            do {
-                let result = try await functions.httpsCallable("annotateImage").call(requestData)
-                print(result.data)
-              
-                if let dict = result.data as? [String: Any],
-                   let landmarkData = dict["landmark"] as? [String: Any] {
-                    
-                    let landmarkName = landmarkData["name"] as? String ?? "Unknown Landmark"
-                    let neighborhoodData = landmarkData["neighborhood"] as? [String: Any]
-                    
-                    let landmark = LandmarkInfo(
-                        name: landmarkName,
-                        knowledgeGraphData: nil,
-                        locationData: landmarkData["locations"] as? [[String: Any]],
-                        neighborhoodData: neighborhoodData
-                    )
-                    
-                    await MainActor.run {
-                        detectionResult = landmarkName
-                        detectedLandmark = landmark
-                    }
-                    
-                    // Save successful detection
-                    await saveDetectionResult(landmarkName: landmarkName)
-                    
-                    // Handle neighborhood unlock
-                    await handleNeighborhoodUnlock(landmark: landmark)
-                    
-                } else {
-                    await MainActor.run {
-                        detectionResult = "No landmarks detected."
-                    }
-                    saveDetectionResult(landmarkName: "None")
-                }
-            } catch {
+        do {
+            let result = try await functions.httpsCallable("annotateImage").call(requestData)
+            print(result.data)
+          
+            if let dict = result.data as? [String: Any],
+               let landmarkData = dict["landmark"] as? [String: Any] {
+                
+                let landmarkName = landmarkData["name"] as? String ?? "Unknown Landmark"
+                let neighborhoodData = landmarkData["neighborhood"] as? [String: Any]
+                
+                let landmark = LandmarkInfo(
+                    name: landmarkName,
+                    knowledgeGraphData: nil,
+                    locationData: landmarkData["locations"] as? [[String: Any]],
+                    neighborhoodData: neighborhoodData
+                )
+                
                 await MainActor.run {
-                    detectionResult = "Error: \(error.localizedDescription)"
+                    detectionResult = landmarkName
+                    detectedLandmark = landmark
                 }
-                print("Error: \(error.localizedDescription)")
+                
+                // Save successful detection
+                try? await saveDetectionResult(landmarkName: landmarkName)
+                
+                // Handle neighborhood unlock
+                await handleNeighborhoodUnlock(landmark: landmark)
+                
+            } else {
+                await MainActor.run {
+                    detectionResult = "No landmarks detected."
+                }
+                try? await saveDetectionResult(landmarkName: "None")
             }
+        } catch {
+            await MainActor.run {
+                detectionResult = "Error: \(error.localizedDescription)"
+            }
+            print("Error: \(error.localizedDescription)")
+        }
+        
+        await MainActor.run {
+            isLoading = false
         }
     }
     
@@ -172,14 +178,8 @@ class LandmarkDetectionViewModel: ObservableObject {
         }
     }
     
-    private func saveDetectionResult(landmarkName: String) {
-        Task {
-            do {
-                try await services.firestore.saveDetectionResult(landmarkName: landmarkName)
-            } catch {
-                print("Error saving detection result: \(error.localizedDescription)")
-            }
-        }
+    private func saveDetectionResult(landmarkName: String) async throws {
+        try await services.firestore.saveDetectionResult(landmarkName: landmarkName)
     }
     
     func updateAppState(_ newAppState: AppState) {
@@ -246,36 +246,64 @@ struct LandmarkDetectionView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var viewModel = LandmarkDetectionViewModel(appState: AppState())
     @State private var showingLoadingAlert = false
+    @State private var isCameraMode = false
+    @State private var navigateToLandmark: LandmarkInfo? = nil
     private let firestoreService = FirestoreService()
     
     var body: some View {
         NavigationView {
             VStack {
-                if let image = viewModel.selectedImage {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(height: 300)
-                        .padding()
-                } else {
-                    Text("Select an image to detect a landmark")
-                        .padding()
+                // Add camera mode toggle
+                Picker("Detection Mode", selection: $isCameraMode) {
+                    Text("Sample Images").tag(false)
+                    Text("Camera").tag(true)
                 }
+                .pickerStyle(SegmentedPickerStyle())
+                .padding()
                 
-                ScrollView(.horizontal) {
-                    HStack {
-                        ForEach(viewModel.imageNames, id: \.self) { name in
-                            Image(name)
-                                .resizable()
-                                .frame(width: 100, height: 100)
-                                .cornerRadius(8)
-                                .padding(4)
-                                .onTapGesture {
-                                    if let uiImage = UIImage(named: name) {
-                                        viewModel.selectedImage = uiImage
-                                        viewModel.detectLandmark(for: uiImage)
+                if isCameraMode {
+                    CameraView { image in
+                        Task { @MainActor in
+                            await viewModel.detectLandmark(for: image)
+                            
+                            // If we got a good detection, stop capturing and navigate
+                            if let landmark = viewModel.detectedLandmark {
+                                navigateToLandmark = landmark
+                                isCameraMode = false  // Switch back to sample mode
+                            }
+                        }
+                    }
+                    .frame(height: 400)
+                } else {
+                    // Existing image selection view
+                    if let image = viewModel.selectedImage {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(height: 300)
+                            .padding()
+                    } else {
+                        Text("Select an image to detect a landmark")
+                            .padding()
+                    }
+                    
+                    ScrollView(.horizontal) {
+                        HStack {
+                            ForEach(viewModel.imageNames, id: \.self) { name in
+                                Image(name)
+                                    .resizable()
+                                    .frame(width: 100, height: 100)
+                                    .cornerRadius(8)
+                                    .padding(4)
+                                    .onTapGesture {
+                                        if let uiImage = UIImage(named: name) {
+                                            viewModel.selectedImage = uiImage
+                                            Task {
+                                                await viewModel.detectLandmark(for: uiImage)
+                                            }
+                                        }
                                     }
-                                }
+                            }
                         }
                     }
                 }
@@ -315,6 +343,17 @@ struct LandmarkDetectionView: View {
                 }
                 .padding()
                 #endif
+                
+                // Replace the force-unwrapped NavigationLink with this safer version
+                if let landmark = navigateToLandmark {
+                    NavigationLink(
+                        destination: LandmarkDetailView(landmark: landmark),
+                        isActive: Binding(
+                            get: { navigateToLandmark != nil },
+                            set: { if !$0 { navigateToLandmark = nil } }
+                        )
+                    ) { EmptyView() }
+                }
                 
                 Spacer()
             }
