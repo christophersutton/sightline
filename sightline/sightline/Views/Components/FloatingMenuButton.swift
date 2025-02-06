@@ -65,29 +65,30 @@ struct FloatingMenu<T: Identifiable>: View {
     }
     
     var body: some View {
+        let triggerItem = items.first { $0.id == selectedId } ?? items.first
+        
         VStack(alignment: alignment, spacing: 12) {
-            // Determine the trigger (selected) item
-            let triggerItem = items.first { $0.id == selectedId } ?? items.first
-            
-            // Fix trigger button initialization
-            FloatingMenuButton(
-                action: {
-                    withAnimation {
-                        if items.count > 1 || onExploreMore == nil {
-                            isExpanded.toggle()
-                        } else {
-                            onExploreMore?()
+            // Trigger button
+            VStack(alignment: alignment, spacing: 0) {
+                FloatingMenuButton(
+                    action: {
+                        withAnimation {
+                            if items.count > 1 || onExploreMore == nil {
+                                isExpanded.toggle()
+                            } else {
+                                onExploreMore?()
+                            }
                         }
-                    }
-                },
-                isSelected: triggerItem?.id == selectedId,
-                expandHorizontally: alignment == .leading
-            ) {
-                Text(triggerItem.map(itemTitle) ?? "")
+                    },
+                    isSelected: triggerItem?.id == selectedId,
+                    expandHorizontally: alignment == .leading
+                ) {
+                    Text(triggerItem.map(itemTitle) ?? "")
+                }
             }
             
-            // Additional items slide in when expanded
-            if isExpanded {
+            // Replace if with always-present content that's moved off-screen
+            VStack(alignment: alignment, spacing: 12) {
                 ForEach(Array(items.filter { $0.id != triggerItem?.id }.enumerated()),
                         id: \.element.id) { index, item in
                     FloatingMenuButton(
@@ -97,20 +98,19 @@ struct FloatingMenu<T: Identifiable>: View {
                     ) {
                         Text(itemTitle(item))
                     }
-                    .offset(x: isExpanded ? 0 : alignment == .leading ? -100 : 100)
-                    .opacity(isExpanded ? 1 : 0)
+                    .offset(x: isExpanded ? 0 : (alignment == .leading ? -200 : 200))
                     .animation(
                         .spring(
-                            response: 0.3,
+                            response: 0.4,
                             dampingFraction: 0.8,
-                            blendDuration: 0
+                            blendDuration: 0.1
                         )
-                        .delay(Double(index) * 0.1),
+                        .delay(Double(index) * 0.05),
                         value: isExpanded
                     )
                 }
                 
-                // "Explore More Areas" button for neighborhoods with a single item
+                // "Explore More Areas" button
                 if alignment == .leading && items.count <= 1 && onExploreMore != nil {
                     FloatingMenuButton(
                         action: { onExploreMore?() },
@@ -118,20 +118,90 @@ struct FloatingMenu<T: Identifiable>: View {
                     ) {
                         Text("Explore More Areas")
                     }
-                    .offset(x: isExpanded ? 0 : -100)
-                    .opacity(isExpanded ? 1 : 0)
+                    .offset(x: isExpanded ? 0 : -200)
                     .animation(
                         .spring(
-                            response: 0.3,
+                            response: 0.4,
                             dampingFraction: 0.8,
                             blendDuration: 0
                         )
-                        .delay(0.1),
+                        .delay(0.05),
                         value: isExpanded
                     )
                 }
             }
+            .clipped() // Ensure off-screen content is hidden
+            .frame(height: isExpanded ? nil : 0) // Collapse height when not expanded
         }
-        // Removed the extra horizontal padding here so that the parent provides the outer margins.
+        .frame(maxHeight: .infinity, alignment: .top)
     }
+}
+
+#Preview("FloatingMenu") {
+    struct PreviewItem: Identifiable {
+        let id: String
+        let name: String
+    }
+    
+    struct PreviewWrapper: View {
+        @State private var leftExpanded = false
+        @State private var rightExpanded = false
+        @State private var singleExpanded = false
+        @State private var leftSelected = "1"
+        @State private var rightSelected = "2"
+        
+        let items = [
+            PreviewItem(id: "1", name: "Zilker"),
+            PreviewItem(id: "2", name: "Capitol District"),
+            PreviewItem(id: "3", name: "Downtown")
+        ]
+        
+        var body: some View {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                
+                VStack(spacing: 40) {
+                    // Left-aligned menu
+                    FloatingMenu(
+                        items: items,
+                        itemTitle: { $0.name },
+                        selectedId: leftSelected,
+                        onSelect: { item in
+                            leftSelected = item.id
+                            leftExpanded = false
+                        },
+                        alignment: .leading,
+                        isExpanded: $leftExpanded
+                    )
+                    
+                    // Right-aligned menu
+                    FloatingMenu(
+                        items: items,
+                        itemTitle: { $0.name },
+                        selectedId: rightSelected,
+                        onSelect: { item in
+                            rightSelected = item.id
+                            rightExpanded = false
+                        },
+                        alignment: .trailing,
+                        isExpanded: $rightExpanded
+                    )
+                    
+                    // Single item with explore more
+                    FloatingMenu(
+                        items: [items[0]],
+                        itemTitle: { $0.name },
+                        selectedId: "1",
+                        onSelect: { _ in },
+                        alignment: .leading,
+                        isExpanded: $singleExpanded,
+                        onExploreMore: {}
+                    )
+                }
+                .padding()
+            }
+        }
+    }
+    
+    return PreviewWrapper()
 } 

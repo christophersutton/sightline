@@ -14,7 +14,7 @@ struct ContentFeedView: View {
                 .zIndex(0)
             
             // Menus (without separate trigger buttons)
-            HStack {
+          HStack(alignment: .top) {
                 // Neighborhoods Menu
                 FloatingMenu(
                     items: viewModel.unlockedNeighborhoods,
@@ -50,7 +50,7 @@ struct ContentFeedView: View {
                 )
             }
             .padding(.top, 24)
-            .padding(.horizontal, 8)  // Reduced horizontal padding for increased space
+            .padding(.horizontal, 16)  // Slightly increased padding for better edge spacing
             .zIndex(2)
         }
         .task {
