@@ -24,7 +24,8 @@ struct PlaceDetailView: View {
                 // Content carousel
                 TabView {
                     ForEach(viewModel.contentItems) { content in
-                        ContentItemView(content: content)
+//                        ContentItemView(content: content)
+                      Text("content.title")
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
@@ -110,4 +111,3 @@ class PlaceDetailViewModel: ObservableObject {
         }
     }
 }
-

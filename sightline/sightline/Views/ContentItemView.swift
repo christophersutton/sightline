@@ -1,23 +1,51 @@
 import SwiftUI
 import AVKit
+import FirebaseStorage
 
+@MainActor
 struct ContentItemView: View {
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject var feedViewModel: ContentFeedViewModel
     let content: Content
-    @StateObject private var viewModel = ContentItemViewModel()
+    @StateObject private var viewModel: ContentItemViewModel
     @Environment(\.safeAreaInsets) private var safeAreaInsets
+    
+    init(content: Content) {
+        self.content = content
+        _viewModel = StateObject(wrappedValue: ContentItemViewModel(
+            content: content,
+            services: ServiceContainer.shared
+        ))
+    }
     
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                if let player = viewModel.player {
+                if let player = feedViewModel.videoManager.currentPlayer {
                     VideoPlayer(player: player)
                         .edgesIgnoringSafeArea(.all)
                         .frame(width: geo.size.width, height: geo.size.height + safeAreaInsets.top + safeAreaInsets.bottom)
                         .offset(y: -safeAreaInsets.top)
+                } else if feedViewModel.videoManager.error != nil {
+                    Color.black
+                    VStack {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.largeTitle)
+                            .foregroundColor(.yellow)
+                        Text("Failed to load video")
+                            .foregroundColor(.white)
+                        Button("Retry") {
+                            Task {
+                                await feedViewModel.videoManager.prepareForDisplay(url: content.videoUrl)
+                            }
+                        }
+                        .foregroundColor(.blue)
+                        .padding(.top)
+                    }
                 } else {
                     Color.black
                     ProgressView()
+                        .scaleEffect(1.5)
                 }
                 
                 // Overlay info
@@ -43,53 +71,71 @@ struct ContentItemView: View {
                         VStack(alignment: .leading) {
                             Text(content.caption)
                                 .font(.headline)
-                            Text("\(content.likes) likes")
-                                .font(.subheadline)
+                                .foregroundColor(.white)
+                            
+                            NavigationLink(value: NavigationDestination.placeDetail(placeId: content.placeId, initialContentId: content.id)) {
+                                Text(viewModel.placeName ?? "Loading place...")
+                                    .font(.subheadline)
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(.ultraThinMaterial)
+                                    .cornerRadius(16)
+                            }
                         }
-                        .foregroundColor(.white)
-                        .shadow(radius: 2)
+                        .padding()
+                        
                         Spacer()
                     }
-                    .padding()
                 }
             }
         }
         .onAppear {
-            viewModel.loadVideo(from: content.videoUrl)
+            Task {
+                await feedViewModel.videoManager.prepareForDisplay(url: content.videoUrl)
+                await viewModel.loadPlace()
+            }
         }
         .onDisappear {
-            viewModel.cleanup()
+            feedViewModel.videoManager.cleanup()
         }
     }
 }
 
-class ContentItemViewModel: ObservableObject {
-    @Published var player: AVPlayer?
-    private var playerLooper: AVPlayerLooper?
+@MainActor
+final class ContentItemViewModel: ObservableObject {
+    @Published var placeName: String?
+    @Published var isLoadingPlace = true
+    private let content: Content
+    private let services: ServiceContainer
     
-    func loadVideo(from urlString: String) {
-        guard let url = URL(string: urlString) else { return }
-        
-        // Create a player item
-        let item = AVPlayerItem(url: url)
-        
-        // Create a player and loop it
-        let queuePlayer = AVQueuePlayer()
-        playerLooper = AVPlayerLooper(player: queuePlayer, templateItem: item)
-        
-        // Set up the player
-        queuePlayer.isMuted = false // Default unmuted
-        
-        DispatchQueue.main.async {
-            self.player = queuePlayer
-            queuePlayer.play()
+    init(content: Content, services: ServiceContainer) {
+        self.content = content
+        self.services = services
+    }
+    
+    func loadPlace() async {
+        isLoadingPlace = true
+        do {
+            let place = try await services.firestore.fetchPlace(id: content.placeId)
+            await MainActor.run {
+                self.placeName = place.name
+            }
+        } catch {
+            await handlePlaceLoadError(error)
+        }
+        isLoadingPlace = false
+    }
+    
+    private func handlePlaceLoadError(_ error: Error) async {
+        await MainActor.run {
+            // Update state for error display
+            print("🔴 Critical place load error: \(error.localizedDescription)")
         }
     }
     
     func cleanup() {
-        player?.pause()
-        player = nil
-        playerLooper = nil
+        // No longer needed as video management is handled by VideoPlayerManager
     }
 }
 

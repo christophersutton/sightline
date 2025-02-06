@@ -15,19 +15,24 @@
  */
 
 import * as functions from "firebase-functions/v1";
+import {defineString} from "firebase-functions/params";
 import vision from "@google-cloud/vision";
-import * as admin from "firebase-admin";
+import admin from "firebase-admin";
+
+// Initialize Firebase Admin (add this before any other code)
+admin.initializeApp();
+
+const API_KEY = defineString("GOOGLE_MAPS_API_KEY");
 
 // Fetch Neighborhood Data
 /**
  * Fetches information from the Knowledge Graph API for a given landmark ID.
- * @param {string} latitude - The latitude of the landmark.
+ * @param {string} latitude -   The latitude of the landmark.
  * @param {string} longitude - The longitude of the landmark.
  * @return {Promise<Object>} The information from the Knowledge Graph API.
  */
 async function fetchNeighborhoodData(latitude, longitude) {
-  const API_KEY = functions.config().google.maps_api_key;
-  const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&result_type=neighborhood&key=${API_KEY}`;
+  const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&result_type=neighborhood&key=${API_KEY.value()}`;
 
   try {
     const response = await fetch(url);
@@ -49,12 +54,6 @@ async function fetchNeighborhoodData(latitude, longitude) {
   }
 }
 
-// This will allow only requests with an auth token to access the Vision
-// API, including anonymous ones.
-// It is highly recommended to limit access only to signed-in users. This may
-// be done by adding the following condition to the if statement:
-//    || context.auth.token?.firebase?.sign_in_provider === 'anonymous'
-//
 // For more fine-grained control, you may add additional failure checks, ie:
 //    || context.auth.token?.firebase?.email_verified === false
 // Also see: https://firebase.google.com/docs/auth/admin/custom-claims
@@ -76,9 +75,24 @@ export const annotateImage = functions.https.onCall(async (data, context) => {
       return {landmark: null};
     }
 
-    // Get the first landmark
+    // Get the first landmark and extract its MID
     const firstLandmark = result.landmarkAnnotations[0];
-    console.log(firstLandmark);
+    const landmarkMid = firstLandmark.mid;
+    // Sanitize the landmark MID for use as a
+    // Firestore document ID (remove leading
+    // slash and replace inner "/" with "_")
+    const sanitizedMid = landmarkMid ?
+      landmarkMid.startsWith("/") ?
+        landmarkMid.slice(1).replace(/\//g, "_") :
+        landmarkMid :
+      null;
+    console.log(
+        "Detected landmark:",
+        firstLandmark,
+        "Using sanitized MID:",
+        sanitizedMid,
+    );
+
     const location = firstLandmark.locations[0].latLng;
 
     // Fetch Knowledge Graph data for just this landmark
@@ -87,33 +101,85 @@ export const annotateImage = functions.https.onCall(async (data, context) => {
         location.longitude,
     );
 
-    // After getting neighborhoodData but before returning
+    console.log("Neighborhood Data:", neighborhoodData);
+
+    // Get a Firestore reference
+    const db = admin.firestore();
+
+    // Update the central neighborhood document with
+    // landmark info, including the unique MID
     if (neighborhoodData?.place_id) {
-      // Store/update neighborhood reference data
-      const db = admin.firestore();
-      await db.collection("neighborhoods").doc(neighborhoodData.place_id).set({
-        name: neighborhoodData.name,
-        bounds: neighborhoodData.bounds,
-        landmarks: admin.firestore.FieldValue.arrayUnion({
-          name: firstLandmark.description,
-          location: new admin.firestore.GeoPoint(
-              location.latitude,
-              location.longitude,
-          ),
-        }),
-      }, {merge: true}); // Use merge to preserve existing landmark entries
+      await db
+          .collection("neighborhoods")
+          .doc(neighborhoodData.place_id)
+          .set(
+              {
+                name: neighborhoodData.name,
+                bounds: neighborhoodData.bounds,
+                landmarks: admin.firestore.FieldValue.arrayUnion({
+                  mid: sanitizedMid,
+                  name: firstLandmark.description,
+                  location: new admin.firestore.GeoPoint(
+                      location.latitude,
+                      location.longitude,
+                  ),
+                }),
+              },
+              {merge: true},
+          );
     }
 
-    // Return a simplified response with just what we need
+    // Update the user's unlocked_neighborhoods
+    // document to reference the landmark MID
+    if (
+      context.auth &&
+      context.auth.uid &&
+      neighborhoodData?.place_id &&
+      sanitizedMid
+    ) {
+      await db
+          .collection("users")
+          .doc(context.auth.uid)
+          .collection("unlocked_neighborhoods")
+          .doc(neighborhoodData.place_id)
+          .set(
+              {
+                unlocked_at: admin.firestore.FieldValue.serverTimestamp(),
+                unlocked_by_landmark: "Vision API",
+                landmark_mid: sanitizedMid,
+                landmark_location: new admin.firestore.GeoPoint(
+                    location.latitude,
+                    location.longitude,
+                ),
+              },
+              {merge: true},
+          );
+    }
+
+    // Save or update the detected landmark in its own collection
+    if (sanitizedMid) {
+      await db.collection("detectedLandmarks").doc(sanitizedMid).set(
+          {
+            name: firstLandmark.description,
+            locations: firstLandmark.locations,
+            score: firstLandmark.score,
+            detected_at: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          {merge: true},
+      );
+    }
+
+    // Return a simplified response including the MID
     const landmark = {
       landmark: {
         name: firstLandmark.description,
+        mid: sanitizedMid,
         score: firstLandmark.score,
         locations: firstLandmark.locations,
         neighborhood: neighborhoodData,
       },
     };
-    console.log(landmark);
+    console.log("Returning landmark response:", landmark);
     return landmark;
   } catch (err) {
     console.error("Error calling Vision API:", err);

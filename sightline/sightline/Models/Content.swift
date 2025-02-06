@@ -47,4 +47,20 @@ struct Content: Identifiable, Codable, Equatable {
         lhs.views == rhs.views &&
         lhs.neighborhoodId == rhs.neighborhoodId
     }
+    
+    init(id: String, placeId: String, authorId: String, type: ContentType, videoUrl: String, thumbnailUrl: String, caption: String, tags: [String], likes: Int, views: Int, neighborhoodId: String, createdAt: Timestamp = Timestamp(), updatedAt: Timestamp = Timestamp()) {
+        self.id = id
+        self.placeId = placeId
+        self.authorId = authorId
+        self.type = type
+        self.videoUrl = videoUrl
+        self.thumbnailUrl = thumbnailUrl
+        self.caption = caption
+        self.tags = tags
+        self.likes = likes
+        self.views = views
+        self.neighborhoodId = neighborhoodId
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
 } 

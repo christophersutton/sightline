@@ -10,7 +10,7 @@ struct SightlineApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+          MainTabView()
         }
     }
 }

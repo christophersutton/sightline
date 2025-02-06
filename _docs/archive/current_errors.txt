@@ -1,0 +1,15 @@
+1. Command SwiftCompile failed with nonzero exit code
+
+2. FirestoreService:
+   - Reference to generic type 'FirestoreQuery' requires arguments in <...>
+   - Reference to generic type 'FirestoreQuery' requires arguments in <...>
+   - No 'async' operations occur within 'await' expression
+   - No 'async' operations occur within 'await' expression
+
+3. ContentFeedViewModel:
+   - Cannot convert value of type 'Int' to expected argument type 'String'
+   - Cannot convert value of type 'Int' to expected argument type 'String'
+
+4. ContentItemView:
+   - Call to main actor-isolated initializer 'init()' in a synchronous nonisolated context
+   - Calls to initializer 'init()' from outside of its actor context are implicitly async 

@@ -1,5 +1,4 @@
 import SwiftUI
-import FirebaseFirestore
 
 struct ContentFeedView: View {
     @EnvironmentObject var appState: AppState
@@ -79,6 +78,7 @@ struct ContentFeedView: View {
                     } else {
                         ForEach(viewModel.contentItems.indices, id: \.self) { index in
                             ContentItemView(content: viewModel.contentItems[index])
+                                .environmentObject(viewModel)
                                 .frame(
                                     width: UIScreen.main.bounds.width,
                                     height: UIScreen.main.bounds.height,
@@ -116,4 +116,4 @@ struct CategoryPill: View {
             .foregroundColor(isSelected ? .black : .white)
             .cornerRadius(20)
     }
-} 
+}
