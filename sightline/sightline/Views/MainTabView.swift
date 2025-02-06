@@ -23,6 +23,14 @@ struct MainTabView: View {
                     Label("Feed", systemImage: "play.square.stack")
                 }
                 .tag(1)
+                
+            // Profile Tab
+            ProfileView()
+                .environmentObject(appState)
+                .tabItem {
+                    Label("Profile", systemImage: "person.circle")
+                }
+                .tag(2)
         }
         .tint(.white)  // Makes the selected tab white
         .onAppear {
