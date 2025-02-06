@@ -50,9 +50,10 @@ class ContentFeedViewModel: ObservableObject {
         isLoading = true
         do {
             print("🔄 Loading content for neighborhood: \(neighborhood.name), category: \(selectedCategory.rawValue)")
+            
             let content = try await services.firestore.fetchContentByCategory(
                 category: selectedCategory,
-                neighborhoodId: neighborhood.id
+                neighborhoodId: neighborhood.id!
             )
             
             // Fetch places for all content items

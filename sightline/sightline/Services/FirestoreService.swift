@@ -5,7 +5,7 @@ import FirebaseAuth
 
 protocol FirestoreServiceProtocol {
     // Neighborhoods
-    func unlockNeighborhood(userId: String, landmark: LandmarkInfo) async throws
+//    func unlockNeighborhood(userId: String, landmark: LandmarkInfo) async throws
     func fetchUnlockedNeighborhoods(for userId: String) async throws -> [Neighborhood]
     
     // Test Data
@@ -115,54 +115,125 @@ class FirestoreService: FirestoreServiceProtocol {
     func fetchUnlockedNeighborhoods(for userId: String) async throws -> [Neighborhood] {
         print("🔍 Fetching unlocked neighborhoods for user: \(userId)")
         
-        // First get the unlocked neighborhood IDs
-        let unlockedSnapshot = try await db.collection("user_neighborhoods")
-            .whereField("userId", isEqualTo: userId)
+        // Get the unlocked neighborhoods from the user's subcollection
+        let unlockedSnapshot = try await db.collection("users")
+            .document(userId)
+            .collection("unlocked_neighborhoods")
             .getDocuments()
         
-        let neighborhoodIds = unlockedSnapshot.documents.compactMap { document -> String? in
-            let data = document.data()
-            return data["neighborhoodId"] as? String
-        }
+        // Use the document IDs as the neighborhood IDs
+        let neighborhoodIds = unlockedSnapshot.documents.map { $0.documentID }
         
         guard !neighborhoodIds.isEmpty else {
             print("⚠️ No unlocked neighborhoods found for user")
             return []
         }
         
-        // Then fetch the actual neighborhoods
+        // Then fetch the actual neighborhoods from the neighborhoods collection
         let neighborhoodSnapshot = try await db.collection("neighborhoods")
             .whereField(FieldPath.documentID(), in: neighborhoodIds)
             .getDocuments()
         
         let neighborhoods = neighborhoodSnapshot.documents.compactMap { document -> Neighborhood? in
-            guard let neighborhood = try? document.data(as: Neighborhood.self) else {
+            do {
+                // Get the raw data
+                let data = document.data()
+                
+                // Manually construct the Neighborhood
+                return Neighborhood(
+                    id: document.documentID,
+                    name: data["name"] as? String ?? "",
+                    bounds: try decodeGeoBounds(from: data["bounds"] as? [String: Any] ?? [:]),
+                    landmarks: try decodeLandmarks(from: data["landmarks"] as? [[String: Any]] ?? [])
+                )
+            } catch {
                 print("⚠️ Failed to decode neighborhood: \(document.documentID)")
+                // Convert document data to a debug-friendly format
+                let data = document.data()
+                var debugData: [String: Any] = [:]
+                
+                // Handle special cases like GeoPoint
+                for (key, value) in data {
+                    if let geoPoint = value as? GeoPoint {
+                        debugData[key] = ["lat": geoPoint.latitude, "lng": geoPoint.longitude]
+                    } else if let array = value as? [[String: Any]] {
+                        // Handle arrays that might contain GeoPoints
+                        debugData[key] = array.map { item in
+                            var newItem = item
+                            for (k, v) in item {
+                                if let gp = v as? GeoPoint {
+                                    newItem[k] = ["lat": gp.latitude, "lng": gp.longitude]
+                                }
+                            }
+                            return newItem
+                        }
+                    } else {
+                        debugData[key] = value
+                    }
+                }
+                
+                print("📄 Document data:", debugData)
+                print("💥 Decode error: \(error)")
                 return nil
             }
-            return neighborhood
         }
         
         print("✅ Found \(neighborhoods.count) unlocked neighborhoods")
         return neighborhoods
     }
     
-    func unlockNeighborhood(userId: String, landmark: LandmarkInfo) async throws {
-        guard let neighborhood = landmark.neighborhood else {
-            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "No neighborhood found"])
+//    func unlockNeighborhood(userId: String, landmark: LandmarkInfo) async throws {
+//        guard let neighborhood = landmark.neighborhood else {
+//            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "No neighborhood found"])
+//        }
+//        
+//        try await db.collection("users")
+//            .document(userId)
+//            .collection("unlocked_neighborhoods")
+//            .document(neighborhood.id)
+//            .setData([
+//                "unlocked_at": FieldValue.serverTimestamp(),
+//                "unlocked_by_landmark": landmark.name,
+//                "landmark_location": GeoPoint(
+//                    latitude: landmark.latitude ?? 0,
+//                    longitude: landmark.longitude ?? 0
+//                )
+//            ])
+//    }
+    
+    // Helper function to decode GeoBounds
+    private func decodeGeoBounds(from data: [String: Any]) throws -> Neighborhood.GeoBounds {
+        guard let northeast = data["northeast"] as? [String: Any],
+              let southwest = data["southwest"] as? [String: Any] else {
+            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "Missing bounds data"))
         }
         
-        try await db.collection("users")
-            .document(userId)
-            .collection("unlocked_neighborhoods")
-            .document(neighborhood.id)
-            .setData([
-                "unlocked_at": FieldValue.serverTimestamp(),
-                "unlocked_by_landmark": landmark.name,
-                "landmark_location": GeoPoint(
-                    latitude: landmark.latitude ?? 0,
-                    longitude: landmark.longitude ?? 0
-                )
-            ])
+        return Neighborhood.GeoBounds(
+            northeast: .init(
+                lat: northeast["lat"] as? Double ?? 0,
+                lng: northeast["lng"] as? Double ?? 0
+            ),
+            southwest: .init(
+                lat: southwest["lat"] as? Double ?? 0,
+                lng: southwest["lng"] as? Double ?? 0
+            )
+        )
+    }
+    
+    // Helper function to decode Landmarks
+    private func decodeLandmarks(from data: [[String: Any]]) throws -> [Neighborhood.Landmark]? {
+        return data.compactMap { landmarkData in
+            guard let location = landmarkData["location"] as? GeoPoint,
+                  let mid = landmarkData["mid"] as? String,
+                  let name = landmarkData["name"] as? String else {
+                return nil
+            }
+            
+            return Neighborhood.Landmark(
+                location: location,
+                mid: mid,
+                name: name
+            )
+        }
     }
 }

@@ -17,7 +17,10 @@
 import * as functions from "firebase-functions/v1";
 import {defineString} from "firebase-functions/params";
 import vision from "@google-cloud/vision";
-// import * as admin from "firebase-admin";
+import admin from "firebase-admin";
+
+// Initialize Firebase Admin (add this before any other code)
+admin.initializeApp();
 
 const API_KEY = defineString("GOOGLE_MAPS_API_KEY");
 
@@ -72,9 +75,24 @@ export const annotateImage = functions.https.onCall(async (data, context) => {
       return {landmark: null};
     }
 
-    // Get the first landmark
+    // Get the first landmark and extract its MID
     const firstLandmark = result.landmarkAnnotations[0];
-    console.log(firstLandmark);
+    const landmarkMid = firstLandmark.mid;
+    // Sanitize the landmark MID for use as a
+    // Firestore document ID (remove leading
+    // slash and replace inner "/" with "_")
+    const sanitizedMid = landmarkMid ?
+      landmarkMid.startsWith("/") ?
+        landmarkMid.slice(1).replace(/\//g, "_") :
+        landmarkMid :
+      null;
+    console.log(
+        "Detected landmark:",
+        firstLandmark,
+        "Using sanitized MID:",
+        sanitizedMid,
+    );
+
     const location = firstLandmark.locations[0].latLng;
 
     // Fetch Knowledge Graph data for just this landmark
@@ -83,36 +101,85 @@ export const annotateImage = functions.https.onCall(async (data, context) => {
         location.longitude,
     );
 
-    console.log(neighborhoodData);
+    console.log("Neighborhood Data:", neighborhoodData);
 
-    // After getting neighborhoodData but before returning
-    // if (neighborhoodData?.place_id) {
-    //   // Store/update neighborhood reference data
-    //   const db = admin.firestore();
-    //   await db.collection("neighborhoods").
-    // doc(neighborhoodData.place_id).set({
-    //     name: neighborhoodData.name,
-    //     bounds: neighborhoodData.bounds,
-    //     landmarks: admin.firestore.FieldValue.arrayUnion({
-    //       name: firstLandmark.description,
-    //       location: new admin.firestore.GeoPoint(
-    //           location.latitude,
-    //           location.longitude,
-    //       ),
-    //     }),
-    //   }, {merge: true}); // Use merge to preserve existing landmark entries
-    // }
+    // Get a Firestore reference
+    const db = admin.firestore();
 
-    // Return a simplified response with just what we need
+    // Update the central neighborhood document with
+    // landmark info, including the unique MID
+    if (neighborhoodData?.place_id) {
+      await db
+          .collection("neighborhoods")
+          .doc(neighborhoodData.place_id)
+          .set(
+              {
+                name: neighborhoodData.name,
+                bounds: neighborhoodData.bounds,
+                landmarks: admin.firestore.FieldValue.arrayUnion({
+                  mid: sanitizedMid,
+                  name: firstLandmark.description,
+                  location: new admin.firestore.GeoPoint(
+                      location.latitude,
+                      location.longitude,
+                  ),
+                }),
+              },
+              {merge: true},
+          );
+    }
+
+    // Update the user's unlocked_neighborhoods
+    // document to reference the landmark MID
+    if (
+      context.auth &&
+      context.auth.uid &&
+      neighborhoodData?.place_id &&
+      sanitizedMid
+    ) {
+      await db
+          .collection("users")
+          .doc(context.auth.uid)
+          .collection("unlocked_neighborhoods")
+          .doc(neighborhoodData.place_id)
+          .set(
+              {
+                unlocked_at: admin.firestore.FieldValue.serverTimestamp(),
+                unlocked_by_landmark: "Vision API",
+                landmark_mid: sanitizedMid,
+                landmark_location: new admin.firestore.GeoPoint(
+                    location.latitude,
+                    location.longitude,
+                ),
+              },
+              {merge: true},
+          );
+    }
+
+    // Save or update the detected landmark in its own collection
+    if (sanitizedMid) {
+      await db.collection("detectedLandmarks").doc(sanitizedMid).set(
+          {
+            name: firstLandmark.description,
+            locations: firstLandmark.locations,
+            score: firstLandmark.score,
+            detected_at: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          {merge: true},
+      );
+    }
+
+    // Return a simplified response including the MID
     const landmark = {
       landmark: {
         name: firstLandmark.description,
+        mid: sanitizedMid,
         score: firstLandmark.score,
         locations: firstLandmark.locations,
         neighborhood: neighborhoodData,
       },
     };
-    console.log(landmark);
+    console.log("Returning landmark response:", landmark);
     return landmark;
   } catch (err) {
     console.error("Error calling Vision API:", err);

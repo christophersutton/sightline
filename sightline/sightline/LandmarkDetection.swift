@@ -36,28 +36,27 @@ struct LandmarkInfo: Identifiable {
             // Create a Neighborhood manually from the dictionary
             let id = neighborhoodData["place_id"] as? String ?? ""
             let name = neighborhoodData["name"] as? String ?? ""
-            let formattedAddress = neighborhoodData["formatted_address"] as? String ?? ""
             let boundsData = neighborhoodData["bounds"] as? [String: Any] ?? [:]
             
             let neData = boundsData["northeast"] as? [String: Any] ?? [:]
             let swData = boundsData["southwest"] as? [String: Any] ?? [:]
             
-            let bounds = GeoBounds(
-                northeast: GeoPoint(
-                    latitude: neData["lat"] as? Double ?? 0,
-                    longitude: neData["lng"] as? Double ?? 0
+            let bounds = Neighborhood.GeoBounds(
+                northeast: Neighborhood.GeoBounds.Point(
+                    lat: neData["lat"] as? Double ?? 0,
+                    lng: neData["lng"] as? Double ?? 0
                 ),
-                southwest: GeoPoint(
-                    latitude: swData["lat"] as? Double ?? 0,
-                    longitude: swData["lng"] as? Double ?? 0
+                southwest: Neighborhood.GeoBounds.Point(
+                    lat: swData["lat"] as? Double ?? 0,
+                    lng: swData["lng"] as? Double ?? 0
                 )
             )
             
             self.neighborhood = Neighborhood(
-                id: id,
+                id: id,  // Now optional
                 name: name,
-                formattedAddress: formattedAddress,
-                bounds: bounds
+                bounds: bounds,
+                landmarks: nil  // We'll get landmarks when we fetch the full neighborhood
             )
         } else {
             self.neighborhood = nil
@@ -123,9 +122,6 @@ class LandmarkDetectionViewModel: ObservableObject {
                     detectedLandmark = landmark
                 }
                 
-                // Save successful detection
-                try? await saveDetectionResult(landmarkName: landmarkName)
-                
                 // Handle neighborhood unlock
                 await handleNeighborhoodUnlock(landmark: landmark)
                 
@@ -133,7 +129,6 @@ class LandmarkDetectionViewModel: ObservableObject {
                 await MainActor.run {
                     detectionResult = "No landmarks detected."
                 }
-                try? await saveDetectionResult(landmarkName: "None")
             }
         } catch {
             await MainActor.run {
@@ -154,25 +149,27 @@ class LandmarkDetectionViewModel: ObservableObject {
             return
         }
         
+        guard let neighborhoodId = neighborhood.id else {
+            await MainActor.run {
+                unlockStatus = "Invalid neighborhood ID"
+            }
+            return
+        }
+        
         do {
             guard let userId = services.auth.userId else { return }
-            try await services.firestore.unlockNeighborhood(userId: userId, landmark: landmark)
+//            try await services.firestore.unlockNeighborhood(userId: userId, landmark: landmark)
             
-            await MainActor.run {
-                unlockStatus = "Unlocked neighborhood: \(neighborhood.name)"
-                appState.lastUnlockedNeighborhoodId = neighborhood.id
-                // Also set the app to switch to the feed
-                appState.shouldSwitchToFeed = true
-            }
+//            await MainActor.run {
+//                unlockStatus = "Unlocked neighborhood: \(neighborhood.name)"
+//                appState.lastUnlockedNeighborhoodId = neighborhoodId
+//                appState.shouldSwitchToFeed = true
+//            }
         } catch {
             await MainActor.run {
                 unlockStatus = "Failed to unlock neighborhood: \(error.localizedDescription)"
             }
         }
-    }
-    
-    private func saveDetectionResult(landmarkName: String) async throws {
-        try await services.firestore.saveDetectionResult(landmarkName: landmarkName)
     }
     
     func updateAppState(_ newAppState: AppState) {

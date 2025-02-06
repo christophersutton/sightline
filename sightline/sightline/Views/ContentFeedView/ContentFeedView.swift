@@ -19,20 +19,7 @@ struct ContentFeedView: View {
                         VStack {
                             Text("No content available")
                                 .foregroundColor(.white)
-                            
-                            #if DEBUG
-                            Button(action: {
-                                Task {
-                                    try? await viewModel.loadTestData()
-                                }
-                            }) {
-                                Text("Load Test Data")
-                                    .padding()
-                                    .background(Color.blue)
-                                    .foregroundColor(.white)
-                                    .cornerRadius(8)
-                            }
-                            #endif
+                          
                         }
                     } else {
                         VerticalFeedView(

@@ -1,20 +1,23 @@
 import FirebaseFirestore  // For GeoPoint
 
-struct Neighborhood: Identifiable, Codable {
-    let id: String
+struct Neighborhood: Codable, Identifiable {
+    @DocumentID var id: String?
     let name: String
-    let formattedAddress: String
     let bounds: GeoBounds
+    let landmarks: [Landmark]?
     
-    enum CodingKeys: String, CodingKey {
-        case id = "place_id"
-        case name
-        case formattedAddress = "formatted_address"
-        case bounds
+    struct GeoBounds: Codable {
+        struct Point: Codable {
+            let lat: Double
+            let lng: Double
+        }
+        let northeast: Point
+        let southwest: Point
     }
-}
-
-struct GeoBounds: Codable {
-    let northeast: GeoPoint
-    let southwest: GeoPoint
+    
+    struct Landmark: Codable {
+        let location: GeoPoint
+        let mid: String
+        let name: String
+    }
 }
