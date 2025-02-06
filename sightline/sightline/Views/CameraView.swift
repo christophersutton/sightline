@@ -9,8 +9,8 @@ class CameraController: NSObject, ObservableObject {
     var captureSession: AVCaptureSession?
     private var videoOutput = AVCaptureVideoDataOutput()
     private var frameCount = 0
-    private let maxFrames = 5
-    private let frameCaptureInterval: TimeInterval = 1.0 // 1 second between frames
+    private let maxFrames = 10
+    private var captureStartTime: Date?
     private var lastCaptureTime: Date?
     private var onFrameCaptured: ((UIImage) -> Void)?
     
@@ -69,6 +69,7 @@ class CameraController: NSObject, ObservableObject {
         self.onFrameCaptured = onFrameCaptured
         self.frameCount = 0
         self.lastCaptureTime = nil
+        self.captureStartTime = Date()
         self.isCapturing = true
         
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -88,17 +89,19 @@ class CameraController: NSObject, ObservableObject {
 
 extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        guard isCapturing && frameCount < maxFrames,
-              let lastCaptureTime = lastCaptureTime else {
-            if lastCaptureTime == nil {
-                self.lastCaptureTime = Date()
-            }
-            return
-        }
+        guard isCapturing && frameCount < maxFrames else { return }
         
         let now = Date()
-        guard now.timeIntervalSince(lastCaptureTime) >= frameCaptureInterval else {
-            return
+        
+        if frameCount == 0 {
+            guard let startTime = captureStartTime, now.timeIntervalSince(startTime) >= 3.0 else {
+                return
+            }
+        } else {
+            let requiredInterval: TimeInterval = frameCount < 5 ? 1.0 : 2.0
+            guard let lastTime = lastCaptureTime, now.timeIntervalSince(lastTime) >= requiredInterval else {
+                return
+            }
         }
         
         guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer),
@@ -109,8 +112,8 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         let ciImage = CIImage(cvPixelBuffer: imageBuffer)
         let context = CIContext()
         guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else { return }
-        
         let image = UIImage(cgImage: cgImage)
+        
         DispatchQueue.main.async {
             self.frameCount += 1
             self.lastCaptureTime = now
@@ -155,7 +158,7 @@ struct CameraView: View {
                         Text("Scanning for landmarks...")
                             .foregroundColor(.white)
                             .padding()
-                            .background(.black.opacity(0.7))
+                            .background(Color.black.opacity(0.7))
                             .cornerRadius(10)
                         Spacer().frame(height: 40)
                     }
@@ -166,7 +169,7 @@ struct CameraView: View {
                 Text(error)
                     .foregroundColor(.red)
                     .padding()
-                    .background(.black.opacity(0.7))
+                    .background(Color.black.opacity(0.7))
                     .cornerRadius(10)
             }
         }

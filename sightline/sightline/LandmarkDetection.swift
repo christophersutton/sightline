@@ -245,106 +245,113 @@ struct LandmarkDetailView: View {
 struct LandmarkDetectionView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var viewModel = LandmarkDetectionViewModel(appState: AppState())
-    @State private var showingLoadingAlert = false
     @State private var isCameraMode = false
     @State private var navigateToLandmark: LandmarkInfo? = nil
-    private let firestoreService = FirestoreService()
     
     var body: some View {
         NavigationView {
-            VStack {
-                // Add camera mode toggle
-                Picker("Detection Mode", selection: $isCameraMode) {
-                    Text("Sample Images").tag(false)
-                    Text("Camera").tag(true)
-                }
-                .pickerStyle(SegmentedPickerStyle())
-                .padding()
-                
+            ZStack {
                 if isCameraMode {
+                    // Full screen camera mode
                     CameraView { image in
                         Task { @MainActor in
                             await viewModel.detectLandmark(for: image)
                             
-                            // If we got a good detection, stop capturing and navigate
                             if let landmark = viewModel.detectedLandmark {
                                 navigateToLandmark = landmark
-                                isCameraMode = false  // Switch back to sample mode
+                                isCameraMode = false
                             }
                         }
                     }
-                    .frame(height: 400)
-                } else {
-                    // Existing image selection view
-                    if let image = viewModel.selectedImage {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(height: 300)
-                            .padding()
-                    } else {
-                        Text("Select an image to detect a landmark")
-                            .padding()
-                    }
+                    .ignoresSafeArea()
                     
-                    ScrollView(.horizontal) {
-                        HStack {
-                            ForEach(viewModel.imageNames, id: \.self) { name in
-                                Image(name)
-                                    .resizable()
-                                    .frame(width: 100, height: 100)
-                                    .cornerRadius(8)
-                                    .padding(4)
-                                    .onTapGesture {
-                                        if let uiImage = UIImage(named: name) {
-                                            viewModel.selectedImage = uiImage
-                                            Task {
-                                                await viewModel.detectLandmark(for: uiImage)
+                    // Scanning animation overlay
+                    ScanningAnimation()
+                        .ignoresSafeArea()
+                    
+                    // Minimal overlay
+                    VStack {
+                        // Mode toggle at top
+                        Picker("", selection: $isCameraMode) {
+                            Text("Gallery").tag(false)
+                            Text("Camera").tag(true)
+                        }
+                        .pickerStyle(SegmentedPickerStyle())
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+                        
+                        Spacer()
+                        
+                        // Only show detection result if it's an error or success
+                        if viewModel.detectionResult.contains("Error") || 
+                           viewModel.detectedLandmark != nil {
+                            Text(viewModel.detectionResult)
+                                .foregroundColor(.white)
+                                .padding()
+                                .background(.black.opacity(0.6))
+                                .cornerRadius(10)
+                                .padding(.bottom)
+                        }
+                    }
+                } else {
+                    // Gallery mode
+                    VStack {
+                        Picker("", selection: $isCameraMode) {
+                            Text("Gallery").tag(false)
+                            Text("Camera").tag(true)
+                        }
+                        .pickerStyle(SegmentedPickerStyle())
+                        .padding()
+                        
+                        if let image = viewModel.selectedImage {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(height: 300)
+                                .padding()
+                        } else {
+                            Text("Select an image to detect a landmark")
+                                .padding()
+                        }
+                        
+                        ScrollView(.horizontal) {
+                            HStack {
+                                ForEach(viewModel.imageNames, id: \.self) { name in
+                                    Image(name)
+                                        .resizable()
+                                        .frame(width: 100, height: 100)
+                                        .cornerRadius(8)
+                                        .padding(4)
+                                        .onTapGesture {
+                                            if let uiImage = UIImage(named: name) {
+                                                viewModel.selectedImage = uiImage
+                                                Task {
+                                                    await viewModel.detectLandmark(for: uiImage)
+                                                }
                                             }
                                         }
-                                    }
+                                }
                             }
                         }
-                    }
-                }
-                
-                if let landmark = viewModel.detectedLandmark {
-                    NavigationLink(destination: LandmarkDetailView(landmark: landmark)) {
-                        VStack {
-                            Text(landmark.name)
-                                .font(.headline)
-                            Text("Tap for more details")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                        
+                        if let landmark = viewModel.detectedLandmark {
+                            NavigationLink(destination: LandmarkDetailView(landmark: landmark)) {
+                                VStack {
+                                    Text(landmark.name)
+                                        .font(.headline)
+                                    Text("Tap for more details")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding()
+                            }
                         }
-                        .padding()
+                        
+                        Spacer()
                     }
-                } else if !viewModel.detectionResult.isEmpty {
-                    Text("Detection Result: \(viewModel.detectionResult)")
-                        .padding()
                 }
                 
-                #if DEBUG
-                Button(action: {
-                    Task {
-                        do {
-                            try await firestoreService.populateTestData()
-                            showingLoadingAlert = true
-                        } catch {
-                            print("Error loading test data: \(error)")
-                        }
-                    }
-                }) {
-                    Text("Load Test Data")
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
-                }
-                .padding()
-                #endif
-                
-                // Replace the force-unwrapped NavigationLink with this safer version
+                // Navigation link for automatic transition
                 if let landmark = navigateToLandmark {
                     NavigationLink(
                         destination: LandmarkDetailView(landmark: landmark),
@@ -354,13 +361,8 @@ struct LandmarkDetectionView: View {
                         )
                     ) { EmptyView() }
                 }
-                
-                Spacer()
             }
-            .navigationTitle("Landmark Detection")
-        }
-        .alert("Test Data Loaded", isPresented: $showingLoadingAlert) {
-            Button("OK", role: .cancel) { }
+            .navigationBarHidden(isCameraMode)
         }
         .onAppear {
             viewModel.updateAppState(appState)
