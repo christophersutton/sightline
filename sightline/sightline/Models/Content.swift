@@ -6,7 +6,7 @@ enum ContentType: String, Codable {
     case highlight = "highlight"
 }
 
-struct Content: Identifiable, Codable {
+struct Content: Codable, Identifiable {
     let id: String
     let placeId: String
     let authorId: String
@@ -30,4 +30,20 @@ struct Content: Identifiable, Codable {
     // Timestamps
     let createdAt: Timestamp
     let updatedAt: Timestamp
+    
+    init(id: String, placeId: String, authorId: String, type: ContentType, videoUrl: String, thumbnailUrl: String, caption: String, tags: [String], likes: Int, views: Int, neighborhoodId: String, createdAt: Timestamp = Timestamp(), updatedAt: Timestamp = Timestamp()) {
+        self.id = id
+        self.placeId = placeId
+        self.authorId = authorId
+        self.type = type
+        self.videoUrl = videoUrl
+        self.thumbnailUrl = thumbnailUrl
+        self.caption = caption
+        self.tags = tags
+        self.likes = likes
+        self.views = views
+        self.neighborhoodId = neighborhoodId
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
 } 
