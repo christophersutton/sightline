@@ -4,84 +4,36 @@ struct FloatingMenuButton<Label: View>: View {
     let action: () -> Void
     let label: () -> Label
     let isSelected: Bool
+    let expandHorizontally: Bool
+    
+    @State private var buttonFrame: CGRect = .zero
     
     init(
-        isSelected: Bool = false,
         action: @escaping () -> Void,
+        isSelected: Bool = false,
+        expandHorizontally: Bool = false,
         @ViewBuilder label: @escaping () -> Label
     ) {
-        self.isSelected = isSelected
         self.action = action
+        self.isSelected = isSelected
+        self.expandHorizontally = expandHorizontally
         self.label = label
     }
     
     var body: some View {
-        Button(action: action) {
-            label()
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                // Main background layers
-                .background {
-                    if isSelected {
-                        Color.white.opacity(0.2)
-                    } else {
-                        Color.white.opacity(0.1)
-                    }
+        AdaptiveColorButton(
+            isSelected: isSelected,
+            expandHorizontally: expandHorizontally,
+            action: action,
+            label: label
+        )
+        .background(
+            GeometryReader { geo in
+                Color.clear.onAppear {
+                    buttonFrame = geo.frame(in: .global)
                 }
-                .background(.ultraThinMaterial)
-                .foregroundColor(.white)
-                .cornerRadius(25)
-                // Multiple shadows for depth
-                .shadow(color: .black.opacity(0.2), radius: 12, x: 0, y: 6)  // Outer shadow
-                .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)   // Close shadow for depth
-                // Layered overlays for texture
-                .overlay {
-                    // Subtle gradient overlay
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(0.4),
-                            .white.opacity(0.1)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    .cornerRadius(25)
-                    .opacity(0.5)
-                }
-                .overlay {
-                    // Inner ring
-                    RoundedRectangle(cornerRadius: 25)
-                        .stroke(
-                            LinearGradient(
-                                colors: [
-                                    .white.opacity(0.5),
-                                    .white.opacity(0.2)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1
-                        )
-                }
-                .overlay {
-                    // Top edge highlight
-                    RoundedRectangle(cornerRadius: 25)
-                        .stroke(
-                            .white.opacity(0.5),
-                            lineWidth: 1
-                        )
-                        .mask {
-                            LinearGradient(
-                                colors: [.white, .clear],
-                                startPoint: .top,
-                                endPoint: .center
-                            )
-                        }
-                }
-        }
-        // Button press effect
-        .scaleEffect(isSelected ? 0.98 : 1.0)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
+            }
+        )
     }
 }
 
@@ -92,34 +44,56 @@ struct FloatingMenu<T: Identifiable>: View {
     let onSelect: (T) -> Void
     let alignment: HorizontalAlignment
     @Binding var isExpanded: Bool
+    let onExploreMore: (() -> Void)?  // Optional parameter
+    
+    init(
+        items: [T],
+        itemTitle: @escaping (T) -> String,
+        selectedId: T.ID?,
+        onSelect: @escaping (T) -> Void,
+        alignment: HorizontalAlignment,
+        isExpanded: Binding<Bool>,
+        onExploreMore: (() -> Void)? = nil  // Default value of nil
+    ) {
+        self.items = items
+        self.itemTitle = itemTitle
+        self.selectedId = selectedId
+        self.onSelect = onSelect
+        self.alignment = alignment
+        self._isExpanded = isExpanded
+        self.onExploreMore = onExploreMore
+    }
     
     var body: some View {
         VStack(alignment: alignment, spacing: 12) {
-            // Show selected item as trigger, or first item if nothing selected
+            // Determine the trigger (selected) item
             let triggerItem = items.first { $0.id == selectedId } ?? items.first
             
-            // Trigger button
+            // Fix trigger button initialization
             FloatingMenuButton(
-                isSelected: triggerItem?.id == selectedId,
                 action: {
                     withAnimation {
-                        isExpanded.toggle()
+                        if items.count > 1 || onExploreMore == nil {
+                            isExpanded.toggle()
+                        } else {
+                            onExploreMore?()
+                        }
                     }
-                }
+                },
+                isSelected: triggerItem?.id == selectedId,
+                expandHorizontally: alignment == .leading
             ) {
                 Text(triggerItem.map(itemTitle) ?? "")
             }
             
-            // Rest of the items slide in when expanded
+            // Additional items slide in when expanded
             if isExpanded {
-                ForEach(Array(items.filter { $0.id != triggerItem?.id }.enumerated()), 
-                       id: \.element.id) { index, item in
+                ForEach(Array(items.filter { $0.id != triggerItem?.id }.enumerated()),
+                        id: \.element.id) { index, item in
                     FloatingMenuButton(
+                        action: { onSelect(item) },
                         isSelected: item.id == selectedId,
-                        action: { 
-                            print("Button tapped: \(itemTitle(item))")  // Add debug print
-                            onSelect(item) 
-                        }
+                        expandHorizontally: alignment == .leading
                     ) {
                         Text(itemTitle(item))
                     }
@@ -135,8 +109,29 @@ struct FloatingMenu<T: Identifiable>: View {
                         value: isExpanded
                     )
                 }
+                
+                // "Explore More Areas" button for neighborhoods with a single item
+                if alignment == .leading && items.count <= 1 && onExploreMore != nil {
+                    FloatingMenuButton(
+                        action: { onExploreMore?() },
+                        expandHorizontally: true
+                    ) {
+                        Text("Explore More Areas")
+                    }
+                    .offset(x: isExpanded ? 0 : -100)
+                    .opacity(isExpanded ? 1 : 0)
+                    .animation(
+                        .spring(
+                            response: 0.3,
+                            dampingFraction: 0.8,
+                            blendDuration: 0
+                        )
+                        .delay(0.1),
+                        value: isExpanded
+                    )
+                }
             }
         }
-        .padding(.horizontal)
+        // Removed the extra horizontal padding here so that the parent provides the outer margins.
     }
 } 

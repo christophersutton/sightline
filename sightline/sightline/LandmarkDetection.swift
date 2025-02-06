@@ -53,14 +53,17 @@ class LandmarkDetectionViewModel: ObservableObject {
     }
     
     func detectLandmark(for image: UIImage) {
+        guard !isLoading else { return }  // Prevent duplicate calls
+        
         isLoading = true
         detectionResult = "Detecting..."
         detectedLandmark = nil
         
         guard let imageData = image.jpegData(compressionQuality: 0.8) else {
-            detectionResult = "Image conversion failed."
+            handleError("Image conversion failed.")
             return
         }
+        
         let base64String = imageData.base64EncodedString()
         
         let requestData: [String: Any] = [
@@ -73,42 +76,54 @@ class LandmarkDetectionViewModel: ObservableObject {
         Task {
             do {
                 let result = try await functions.httpsCallable("annotateImage").call(requestData)
-                print(result.data)
-              
-                if let dict = result.data as? [String: Any],
-                   let landmarkData = dict["landmark"] as? [String: Any] {
-                    
-                    let landmarkName = landmarkData["name"] as? String ?? "Unknown Landmark"
-                    let neighborhoodData = landmarkData["neighborhood"] as? [String: Any]
-                    
-                    let landmark = LandmarkInfo(
-                        name: landmarkName,
-                        knowledgeGraphData: nil,
-                        locationData: landmarkData["locations"] as? [[String: Any]],
-                        neighborhoodData: neighborhoodData
-                    )
-                    
-                    await MainActor.run {
-                        detectionResult = landmarkName
-                        detectedLandmark = landmark
-                    }
-                    
-                    // Handle neighborhood unlock
-                    await handleNeighborhoodUnlock(landmark: landmark)
-                    
-                } else {
-                    await MainActor.run {
-                        detectionResult = "No landmarks detected."
-                    }
-                    saveDetectionResult(landmarkName: "None")
+                
+                await MainActor.run {
+                    handleDetectionResult(result.data)
                 }
             } catch {
                 await MainActor.run {
-                    detectionResult = "Error: \(error.localizedDescription)"
+                    handleError(error.localizedDescription)
                 }
-                print("Error: \(error.localizedDescription)")
             }
         }
+    }
+    
+    private func handleDetectionResult(_ data: Any) {
+        guard let dict = data as? [String: Any] else {
+            handleError("Invalid response format")
+            return
+        }
+        
+        guard let landmarkData = dict["landmark"] as? [String: Any],
+              let landmarkName = landmarkData["name"] as? String else {
+            detectionResult = "No landmarks detected."
+            saveDetectionResult(landmarkName: "None")
+            isLoading = false
+            return
+        }
+        
+        let neighborhoodData = landmarkData["neighborhood"] as? [String: Any]
+        
+        let landmark = LandmarkInfo(
+            name: landmarkName,
+            knowledgeGraphData: landmarkData["knowledgeGraph"] as? [String: Any],
+            locationData: landmarkData["locations"] as? [[String: Any]],
+            neighborhoodData: neighborhoodData
+        )
+        
+        detectionResult = landmarkName
+        detectedLandmark = landmark
+        
+        // Handle neighborhood unlock in background
+        Task {
+            await handleNeighborhoodUnlock(landmark: landmark)
+        }
+    }
+    
+    private func handleError(_ message: String) {
+        detectionResult = "Error: \(message)"
+        print("Detection error: \(message)")
+        isLoading = false
     }
     
     private func handleNeighborhoodUnlock(landmark: LandmarkInfo) async {
@@ -248,41 +263,31 @@ struct LandmarkDetectionView: View {
                     }
                 }
                 
-                if let landmark = viewModel.detectedLandmark {
-                    NavigationLink(destination: LandmarkDetailView(landmark: landmark)) {
-                        VStack {
-                            Text(landmark.name)
-                                .font(.headline)
-                            Text("Tap for more details")
+                if viewModel.isLoading {
+                    ProgressView("Detecting landmark...")
+                        .padding()
+                } else if let landmark = viewModel.detectedLandmark {
+                    VStack(spacing: 8) {
+                        Text("Detected: \(landmark.name)")
+                            .font(.headline)
+                        
+                        NavigationLink(destination: LandmarkDetailView(landmark: landmark)) {
+                            Text("View Details")
+                                .font(.subheadline)
+                                .foregroundColor(.blue)
+                        }
+                        
+                        if !viewModel.unlockStatus.isEmpty {
+                            Text(viewModel.unlockStatus)
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(.green)
                         }
-                        .padding()
                     }
+                    .padding()
                 } else if !viewModel.detectionResult.isEmpty {
-                    Text("Detection Result: \(viewModel.detectionResult)")
+                    Text(viewModel.detectionResult)
                         .padding()
                 }
-                
-                #if DEBUG
-                Button(action: {
-                    Task {
-                        do {
-                            try await firestoreService.populateTestData()
-                            showingLoadingAlert = true
-                        } catch {
-                            print("Error loading test data: \(error)")
-                        }
-                    }
-                }) {
-                    Text("Load Test Data")
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
-                }
-                .padding()
-                #endif
                 
                 Spacer()
             }

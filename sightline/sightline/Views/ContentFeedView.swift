@@ -14,7 +14,7 @@ struct ContentFeedView: View {
             contentFeed
                 .zIndex(0)
             
-            // Just the menus, no separate trigger buttons
+            // Menus (without separate trigger buttons)
             HStack {
                 // Neighborhoods Menu
                 FloatingMenu(
@@ -29,7 +29,10 @@ struct ContentFeedView: View {
                         }
                     },
                     alignment: .leading,
-                    isExpanded: $showingNeighborhoods
+                    isExpanded: $showingNeighborhoods,
+                    onExploreMore: {
+                        appState.shouldSwitchToDiscover = true
+                    }
                 )
                 
                 Spacer()
@@ -40,7 +43,6 @@ struct ContentFeedView: View {
                     itemTitle: { $0.rawValue.capitalized },
                     selectedId: viewModel.selectedCategory.rawValue,
                     onSelect: { category in
-                        print("Selected category: \(category.rawValue)")
                         viewModel.categorySelected(category)
                         showingCategories = false
                     },
@@ -48,8 +50,8 @@ struct ContentFeedView: View {
                     isExpanded: $showingCategories
                 )
             }
-            .padding(.top, 24) // Reduced from 44 to bring it closer to top
-            .padding(.horizontal)
+            .padding(.top, 24)
+            .padding(.horizontal, 8)  // Reduced horizontal padding for increased space
             .zIndex(2)
         }
         .task {
