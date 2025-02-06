@@ -84,13 +84,14 @@ class LandmarkDetectionViewModel: ObservableObject {
     func detectLandmark(for image: UIImage) async {
         await MainActor.run {
             isLoading = true
-            detectionResult = "Detecting..."
+            detectionResult = ""
             detectedLandmark = nil
         }
         
         guard let imageData = image.jpegData(compressionQuality: 0.8) else {
             await MainActor.run {
                 detectionResult = "Image conversion failed."
+                isLoading = false
             }
             return
         }
@@ -105,8 +106,6 @@ class LandmarkDetectionViewModel: ObservableObject {
         
         do {
             let result = try await functions.httpsCallable("annotateImage").call(requestData)
-            print(result.data)
-          
             if let dict = result.data as? [String: Any],
                let landmarkData = dict["landmark"] as? [String: Any] {
                 
@@ -121,7 +120,6 @@ class LandmarkDetectionViewModel: ObservableObject {
                 )
                 
                 await MainActor.run {
-                    detectionResult = landmarkName
                     detectedLandmark = landmark
                 }
                 
@@ -141,7 +139,6 @@ class LandmarkDetectionViewModel: ObservableObject {
             await MainActor.run {
                 detectionResult = "Error: \(error.localizedDescription)"
             }
-            print("Error: \(error.localizedDescription)")
         }
         
         await MainActor.run {
@@ -153,27 +150,23 @@ class LandmarkDetectionViewModel: ObservableObject {
         guard let neighborhood = landmark.neighborhood else {
             await MainActor.run {
                 unlockStatus = "No neighborhood found for this landmark"
-                isLoading = false
             }
             return
         }
         
         do {
             guard let userId = services.auth.userId else { return }
-            
-            // Use FirestoreService instead of direct Firestore access
             try await services.firestore.unlockNeighborhood(userId: userId, landmark: landmark)
             
             await MainActor.run {
                 unlockStatus = "Unlocked neighborhood: \(neighborhood.name)"
-                isLoading = false
                 appState.lastUnlockedNeighborhoodId = neighborhood.id
+                // Also set the app to switch to the feed
                 appState.shouldSwitchToFeed = true
             }
         } catch {
             await MainActor.run {
                 unlockStatus = "Failed to unlock neighborhood: \(error.localizedDescription)"
-                isLoading = false
             }
         }
     }
@@ -245,33 +238,61 @@ struct LandmarkDetailView: View {
 struct LandmarkDetectionView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var viewModel = LandmarkDetectionViewModel(appState: AppState())
+    
+    // Camera/transition states
     @State private var isCameraMode = false
     @State private var navigateToLandmark: LandmarkInfo? = nil
+    @State private var showTransition: Bool = false
+    @State private var shouldFlash = false
+    @State private var fadeToBlack = false
+    
+    @Namespace private var scanningNamespace
     
     var body: some View {
         NavigationView {
             ZStack {
                 if isCameraMode {
-                    // Full screen camera mode
-                    CameraView { image in
-                        Task { @MainActor in
-                            await viewModel.detectLandmark(for: image)
-                            
-                            if let landmark = viewModel.detectedLandmark {
-                                navigateToLandmark = landmark
-                                isCameraMode = false
+                    CameraView(
+                        onFrameCaptured: { image in
+                            Task {
+                                await viewModel.detectLandmark(for: image)
+                                if let landmark = viewModel.detectedLandmark {
+                                    await animateLandmarkDetectionFlow(landmark: landmark)
+                                }
                             }
-                        }
-                    }
+                        },
+                        shouldFlash: $shouldFlash
+                    )
                     .ignoresSafeArea()
                     
-                    // Scanning animation overlay
-                    ScanningAnimation()
+                    if showTransition {
+                        ScanningTransitionView(namespace: scanningNamespace)
+                            .ignoresSafeArea()
+                    } else {
+                        ScanningAnimation(namespace: scanningNamespace)
+                            .ignoresSafeArea()
+                    }
+                    
+                    // Show any errors only, not the detected name.
+                    if viewModel.detectionResult.contains("Error") {
+                        VStack {
+                            Spacer()
+                            Text(viewModel.detectionResult)
+                                .foregroundColor(.white)
+                                .padding()
+                                .background(.black.opacity(0.6))
+                                .cornerRadius(10)
+                                .padding(.bottom, 30)
+                        }
+                    }
+                    
+                    // Fade-out overlay
+                    Color.black
+                        .opacity(fadeToBlack ? 1.0 : 0.0)
                         .ignoresSafeArea()
                     
-                    // Minimal overlay
+                    // Top bar: switch camera <-> gallery
                     VStack {
-                        // Mode toggle at top
                         Picker("", selection: $isCameraMode) {
                             Text("Gallery").tag(false)
                             Text("Camera").tag(true)
@@ -279,20 +300,9 @@ struct LandmarkDetectionView: View {
                         .pickerStyle(SegmentedPickerStyle())
                         .padding(.horizontal)
                         .padding(.top, 8)
-                        
                         Spacer()
-                        
-                        // Only show detection result if it's an error or success
-                        if viewModel.detectionResult.contains("Error") || 
-                           viewModel.detectedLandmark != nil {
-                            Text(viewModel.detectionResult)
-                                .foregroundColor(.white)
-                                .padding()
-                                .background(.black.opacity(0.6))
-                                .cornerRadius(10)
-                                .padding(.bottom)
-                        }
                     }
+                    
                 } else {
                     // Gallery mode
                     VStack {
@@ -334,6 +344,7 @@ struct LandmarkDetectionView: View {
                             }
                         }
                         
+                        // If a landmark was found in gallery mode, show link
                         if let landmark = viewModel.detectedLandmark {
                             NavigationLink(destination: LandmarkDetailView(landmark: landmark)) {
                                 VStack {
@@ -345,13 +356,23 @@ struct LandmarkDetectionView: View {
                                 }
                                 .padding()
                             }
+                        } else if viewModel.detectionResult.contains("Error") {
+                            Text(viewModel.detectionResult)
+                                .foregroundColor(.red)
+                                .padding()
+                        } else if viewModel.detectionResult == "No landmarks detected." {
+                            Text(viewModel.detectionResult)
+                                .foregroundColor(.white)
+                                .padding()
+                                .background(.black.opacity(0.6))
+                                .cornerRadius(10)
                         }
                         
                         Spacer()
                     }
                 }
                 
-                // Navigation link for automatic transition
+                // Navigation link that triggers after our animations
                 if let landmark = navigateToLandmark {
                     NavigationLink(
                         destination: LandmarkDetailView(landmark: landmark),
@@ -359,7 +380,9 @@ struct LandmarkDetectionView: View {
                             get: { navigateToLandmark != nil },
                             set: { if !$0 { navigateToLandmark = nil } }
                         )
-                    ) { EmptyView() }
+                    ) {
+                        EmptyView()
+                    }
                 }
             }
             .navigationBarHidden(isCameraMode)
@@ -367,6 +390,44 @@ struct LandmarkDetectionView: View {
         .onAppear {
             viewModel.updateAppState(appState)
         }
+    }
+    
+    /// Single flow that coordinates flash, scanning lines, fade, then the detail view.
+    private func animateLandmarkDetectionFlow(landmark: LandmarkInfo) async {
+        // 1) Trigger camera flash
+        withAnimation(.easeIn(duration: 0.1)) {
+            shouldFlash = true
+        }
+        
+        // 2) Short delay so flash is visible
+        try? await Task.sleep(nanoseconds: 150_000_000) // 0.15s
+        
+        // 3) Run scanning transition
+        withAnimation(.easeInOut(duration: 1.0)) {
+            showTransition = true
+        }
+        
+        // 4) Wait for scanning line to expand
+        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s
+        
+        // 5) Fade to black
+        withAnimation(.easeIn(duration: 0.5)) {
+            fadeToBlack = true
+        }
+        
+        // 6) Wait for fade
+        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+        
+        // 7) Navigate to detail
+        navigateToLandmark = landmark
+        
+        // 8) Switch out of camera mode
+        isCameraMode = false
+        
+        // 9) Reset animations
+        showTransition = false
+        fadeToBlack = false
+        shouldFlash = false
     }
 }
 

@@ -1,25 +1,25 @@
 import SwiftUI
 
 struct ScanningAnimation: View {
+    let namespace: Namespace.ID
     @State private var position: CGFloat = 0.0
     
     var body: some View {
         GeometryReader { geometry in
             let halfHeight = geometry.size.height / 2
-            // Adjusted scanning area positions relative to the centered coordinate space.
             let scanningTop = geometry.size.height * 0.1 - halfHeight
             let scanningBottom = geometry.size.height * 0.9 - halfHeight
             
             ZStack {
-                // Scanner line
+                // Scanning line with matched geometry effect.
                 Rectangle()
                     .fill(
                         LinearGradient(
                             gradient: Gradient(colors: [
-                                .clear, 
-                                .blue.opacity(0.5), 
-                                .blue, 
-                                .blue.opacity(0.5), 
+                                .clear,
+                                .blue.opacity(0.5),
+                                .blue,
+                                .blue.opacity(0.5),
                                 .clear
                             ]),
                             startPoint: .leading,
@@ -29,17 +29,19 @@ struct ScanningAnimation: View {
                     .frame(height: 3)
                     .offset(y: position)
                     .shadow(color: .blue.opacity(0.5), radius: 4)
+                    .matchedGeometryEffect(id: "scannerLine", in: namespace)
                 
-                // Corner brackets defining the scanning area
+                // Scanner corners with matched geometry effect.
                 ScannerCorners()
                     .stroke(Color.white.opacity(0.7), lineWidth: 3)
-                    .frame(width: geometry.size.width * 0.8, height: geometry.size.height * 0.8)
-                    .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                    .frame(width: geometry.size.width * 0.8,
+                           height: geometry.size.height * 0.8)
+                    .position(x: geometry.size.width / 2,
+                              y: geometry.size.height / 2)
+                    .matchedGeometryEffect(id: "scannerCorners", in: namespace)
             }
             .onAppear {
-                // Start animation from the adjusted top of the scanning area.
                 position = scanningTop
-                
                 withAnimation(
                     .easeInOut(duration: 2.0)
                         .repeatForever(autoreverses: true)

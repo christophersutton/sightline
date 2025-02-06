@@ -141,17 +141,21 @@ struct CameraPreviewView: UIViewRepresentable {
     func updateUIView(_ uiView: UIView, context: Context) {}
 }
 
+// Updated CameraView with flash overlay effect added.
 struct CameraView: View {
     @StateObject private var cameraController = CameraController()
     @Environment(\.dismiss) private var dismiss
     var onFrameCaptured: (UIImage) -> Void
+    @Binding var shouldFlash: Bool
+    
+    @State private var flashOverlayOpacity: Double = 0.0
     
     var body: some View {
         ZStack {
             if let session = cameraController.captureSession {
                 CameraPreviewView(session: session)
                 
-                // Add scanning overlay
+                // Scanning overlay while capturing
                 if cameraController.isCapturing {
                     VStack {
                         Spacer()
@@ -171,6 +175,26 @@ struct CameraView: View {
                     .padding()
                     .background(Color.black.opacity(0.7))
                     .cornerRadius(10)
+            }
+            
+            // Flash overlay effect
+            Color.white
+                .opacity(flashOverlayOpacity)
+                .ignoresSafeArea()
+        }
+        .onChange(of: shouldFlash) { newValue in
+            if newValue {
+                // Trigger flash animation
+                withAnimation(.easeIn(duration: 0.1)) {
+                    flashOverlayOpacity = 1.0
+                }
+                withAnimation(.easeOut(duration: 0.3).delay(0.1)) {
+                    flashOverlayOpacity = 0.0
+                }
+                // Reset the flag
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    shouldFlash = false
+                }
             }
         }
         .onAppear {
