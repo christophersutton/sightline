@@ -15,19 +15,21 @@
  */
 
 import * as functions from "firebase-functions/v1";
+import {defineString} from "firebase-functions/params";
 import vision from "@google-cloud/vision";
-import * as admin from "firebase-admin";
+// import * as admin from "firebase-admin";
+
+const API_KEY = defineString("GOOGLE_MAPS_API_KEY");
 
 // Fetch Neighborhood Data
 /**
  * Fetches information from the Knowledge Graph API for a given landmark ID.
- * @param {string} latitude - The latitude of the landmark.
+ * @param {string} latitude -   The latitude of the landmark.
  * @param {string} longitude - The longitude of the landmark.
  * @return {Promise<Object>} The information from the Knowledge Graph API.
  */
 async function fetchNeighborhoodData(latitude, longitude) {
-  const API_KEY = functions.config().google.maps_api_key;
-  const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&result_type=neighborhood&key=${API_KEY}`;
+  const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&result_type=neighborhood&key=${API_KEY.value()}`;
 
   try {
     const response = await fetch(url);
@@ -87,22 +89,25 @@ export const annotateImage = functions.https.onCall(async (data, context) => {
         location.longitude,
     );
 
+    console.log(neighborhoodData);
+
     // After getting neighborhoodData but before returning
-    if (neighborhoodData?.place_id) {
-      // Store/update neighborhood reference data
-      const db = admin.firestore();
-      await db.collection("neighborhoods").doc(neighborhoodData.place_id).set({
-        name: neighborhoodData.name,
-        bounds: neighborhoodData.bounds,
-        landmarks: admin.firestore.FieldValue.arrayUnion({
-          name: firstLandmark.description,
-          location: new admin.firestore.GeoPoint(
-              location.latitude,
-              location.longitude,
-          ),
-        }),
-      }, {merge: true}); // Use merge to preserve existing landmark entries
-    }
+    // if (neighborhoodData?.place_id) {
+    //   // Store/update neighborhood reference data
+    //   const db = admin.firestore();
+    //   await db.collection("neighborhoods").
+    // doc(neighborhoodData.place_id).set({
+    //     name: neighborhoodData.name,
+    //     bounds: neighborhoodData.bounds,
+    //     landmarks: admin.firestore.FieldValue.arrayUnion({
+    //       name: firstLandmark.description,
+    //       location: new admin.firestore.GeoPoint(
+    //           location.latitude,
+    //           location.longitude,
+    //       ),
+    //     }),
+    //   }, {merge: true}); // Use merge to preserve existing landmark entries
+    // }
 
     // Return a simplified response with just what we need
     const landmark = {
