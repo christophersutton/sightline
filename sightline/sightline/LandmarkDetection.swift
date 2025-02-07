@@ -275,128 +275,135 @@ struct LandmarkDetectionView: View {
     
     var body: some View {
         GeometryReader { geometry in
-          ScrollView {
-            ZStack(alignment:.top) {
-              // Background Image
-              
-              
-              Image("discoverbg")
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: geometry.size.width, height: geometry.size.height)
-                .clipped()
-                .ignoresSafeArea()
-              
-              // Status bar blur overlay
-              Rectangle()
-                .fill(.ultraThinMaterial)
-                .frame(height: geometry.safeAreaInsets.top)
-                .ignoresSafeArea()
-              
-              if isCameraMode {
-                // Camera View
-                CameraView(
-                  onFrameCaptured: { image in
-                    Task {
-                      await viewModel.detectLandmark(for: image)
-                      if let landmark = viewModel.detectedLandmark {
-                        await animateLandmarkDetectionFlow(landmark: landmark)
-                      }
-                    }
-                  },
-                  shouldFlash: $shouldFlash
-                )
-                .ignoresSafeArea()
+            ZStack {
+                // Background Image - adjust position and offset
+                Image("discoverbg")
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: geometry.size.width, height: geometry.size.height + 100) // Make image taller
+                    .clipped()
                 
-                // Close Button - now respecting safe area
-                VStack {
-                  HStack {
-                    Button(action: {
-                      isCameraMode = false
-                    }) {
-                      Image(systemName: "xmark")
-                        .font(.title2)
-                        .foregroundColor(.white)
-                        .padding(12)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Circle())
-                    }
-                    .padding(.leading)
-                    Spacer()
-                  }
-                  .padding(.top, geometry.safeAreaInsets.top)
-                  Spacer()
-                }
-                
-                // Scanning animations
-                if showTransition {
-                  ScanningTransitionView(namespace: scanningNamespace)
+                // Status bar blur overlay
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .frame(height: geometry.safeAreaInsets.top)
                     .ignoresSafeArea()
-                } else {
-                  ScanningAnimation(namespace: scanningNamespace)
-                    .ignoresSafeArea()
-                }
                 
-                // Error messages
-                if viewModel.detectionResult.contains("Error") {
-                  VStack {
-                    Spacer()
-                    Text(viewModel.detectionResult)
-                      .foregroundColor(.white)
-                      .padding()
-                      .background(.black.opacity(0.6))
-                      .cornerRadius(10)
-                      .padding(.bottom, 30)
-                  }
-                }
-                
-                // Fade-out overlay
-                Color.black
-                  .opacity(fadeToBlack ? 1.0 : 0.0)
-                  .ignoresSafeArea()
-              } else {
-                // Main content - now properly padded for safe areas
-                ScrollView {
-                  VStack(spacing: 24) {
-                    // Content Container
-                    VStack(spacing: 16) {
-                      Image(systemName: "camera.viewfinder")
-                        .font(.system(size: 64))
-                        .foregroundColor(Color(.systemYellow))
-                      
-                      Text("Discover Your City")
-                        .font(.custom("Baskerville-Bold", size: 32))
-                        .multilineTextAlignment(.center)
-                      
-                      Text("Capture landmarks to unlock neighborhood content and explore local stories")
-                        .font(.custom("Baskerville", size: 20))
-                        .foregroundColor(.white)
-                        .multilineTextAlignment(.center)
-                      
-                      Button(action: {
-                        isCameraMode = true
-                      }) {
-                        HStack(spacing: 12) {
-                          Image(systemName: "camera.fill")
-                            .font(.title3)
-                          Text("Open Camera")
-                            .font(.title3)
+                if isCameraMode {
+                    // Camera View
+                    CameraView(
+                      onFrameCaptured: { image in
+                        Task {
+                          await viewModel.detectLandmark(for: image)
+                          if let landmark = viewModel.detectedLandmark {
+                            await animateLandmarkDetectionFlow(landmark: landmark)
+                          }
                         }
-                        .foregroundColor(.black)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(Color(.systemYellow))
-                        .cornerRadius(12)
+                      },
+                      shouldFlash: $shouldFlash
+                    )
+                    .ignoresSafeArea()
+                    
+                    // Close Button - now respecting safe area
+                    VStack {
+                      HStack {
+                        Button(action: {
+                          isCameraMode = false
+                        }) {
+                          Image(systemName: "xmark")
+                            .font(.title2)
+                            .foregroundColor(.white)
+                            .padding(12)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Circle())
+                        }
+                        .padding(.leading)
+                        Spacer()
                       }
-                      .padding(.top, 12)
+                      .padding(.top, geometry.safeAreaInsets.top)
+                      Spacer()
                     }
-                    .padding(24)
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(16)
-                    .shadow(radius: 8)
-                  }
-                  .padding()
-                  .padding(.top, geometry.safeAreaInsets.top)
+                    
+                    // Scanning animations
+                    if showTransition {
+                      ScanningTransitionView(namespace: scanningNamespace)
+                        .ignoresSafeArea()
+                    } else {
+                      ScanningAnimation(namespace: scanningNamespace)
+                        .ignoresSafeArea()
+                    }
+                    
+                    // Error messages
+                    if viewModel.detectionResult.contains("Error") {
+                      VStack {
+                        Spacer()
+                        Text(viewModel.detectionResult)
+                          .foregroundColor(.white)
+                          .padding()
+                          .background(.black.opacity(0.6))
+                          .cornerRadius(10)
+                          .padding(.bottom, 30)
+                      }
+                    }
+                    
+                    // Fade-out overlay
+                    Color.black
+                      .opacity(fadeToBlack ? 1.0 : 0.0)
+                      .ignoresSafeArea()
+                } else {
+                    // Main content - center in available space
+                    ScrollView {
+                        GeometryReader { scrollGeometry in
+                            // Center the content both vertically and horizontally
+                            VStack {
+                              Spacer(minLength:800)
+                                
+                                // Content Container
+                                VStack(spacing: 16) {
+                                    Image(systemName: "camera.viewfinder")
+                                        .font(.system(size: 64))
+                                        .foregroundColor(Color(.systemYellow))
+                                    
+                                    Text("Discover Your City")
+                                        .font(.custom("Baskerville-Bold", size: 32))
+                                        .multilineTextAlignment(.center)
+                                    
+                                    Text("Capture landmarks to unlock neighborhood content and explore local stories")
+                                        .font(.custom("Baskerville", size: 20))
+                                        .foregroundColor(.white)
+                                        .multilineTextAlignment(.center)
+                                    
+                                    Button(action: {
+                                        isCameraMode = true
+                                    }) {
+                                        HStack(spacing: 12) {
+                                            Image(systemName: "camera.fill")
+                                                .font(.title3)
+                                            Text("Open Camera")
+                                                .font(.title3)
+                                        }
+                                        .foregroundColor(.black)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 16)
+                                        .background(Color(.systemYellow))
+                                        .cornerRadius(12)
+                                    }
+                                    .padding(.top, 12)
+                                }
+                                .padding(24)
+                                .background(.ultraThinMaterial)
+                                .cornerRadius(16)
+                                .shadow(radius: 8)
+                                .padding()
+                                
+                                Spacer(minLength: 0)
+                            }
+                            .frame(
+                                minWidth: scrollGeometry.size.width,
+                                minHeight: scrollGeometry.size.height
+                            )
+                        }
+                    }
                 }
                 
 #if DEBUG
@@ -420,24 +427,22 @@ struct LandmarkDetectionView: View {
                   }
                 }
 #endif
-              }
             }
                 
-                // Navigation link for landmark detail
-                if let landmark = navigateToLandmark {
-                    NavigationLink(
-                        destination: LandmarkDetailView(landmark: landmark),
-                        isActive: Binding(
-                            get: { navigateToLandmark != nil },
-                            set: { if !$0 { navigateToLandmark = nil } }
-                        )
-                    ) {
-                        EmptyView()
-                    }
+            // Navigation link for landmark detail
+            if let landmark = navigateToLandmark {
+                NavigationLink(
+                    destination: LandmarkDetailView(landmark: landmark),
+                    isActive: Binding(
+                        get: { navigateToLandmark != nil },
+                        set: { if !$0 { navigateToLandmark = nil } }
+                    )
+                ) {
+                    EmptyView()
                 }
             }
-            .ignoresSafeArea()
         }
+        .ignoresSafeArea(.container, edges: [.top]) // Only ignore top safe area
         .sheet(isPresented: $showingGalleryPicker) {
             NavigationView {
                 ScrollView {

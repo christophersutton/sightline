@@ -10,7 +10,7 @@ struct ProfileView: View {
             if viewModel.isLoading {
                 ProgressView()
             } else if viewModel.isAnonymous {
-                SignUpView(viewModel: viewModel)
+                AuthView(viewModel: viewModel)
             } else {
                 UserProfileView(viewModel: viewModel)
                     .navigationTitle("Profile")
@@ -22,9 +22,10 @@ struct ProfileView: View {
     }
 }
 
-// Sign Up Form
-struct SignUpView: View {
+// Combined Auth View that handles both Sign Up and Sign In
+struct AuthView: View {
     @ObservedObject var viewModel: ProfileViewModel
+    @State private var isSignIn = false
     @State private var email = ""
     @State private var password = ""
     @State private var confirmPassword = ""
@@ -46,10 +47,10 @@ struct SignUpView: View {
                         VStack(spacing: 24) {
                             // Header
                             VStack(spacing: 8) {
-                                Text("Create an Account")
+                                Text(isSignIn ? "Sign In" : "Create an Account")
                                     .font(.custom("Baskerville-Bold", size: 28))
                                 
-                                Text("Save Places, Post Content, and More")
+                                Text(isSignIn ? "Welcome Back" : "Save Places, Post Content, and More")
                                     .font(.custom("Baskerville", size: 18))
                                     .foregroundColor(.secondary)
                                     .multilineTextAlignment(.center)
@@ -61,15 +62,20 @@ struct SignUpView: View {
                                     .textContentType(.emailAddress)
                                     .keyboardType(.emailAddress)
                                     .autocapitalization(.none)
-                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .foregroundColor(.black)
+                                    .customTextField()
                                 
                                 SecureField("Password", text: $password)
-                                    .textContentType(.newPassword)
-                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .textContentType(isSignIn ? .password : .newPassword)
+                                    .foregroundColor(.black)
+                                    .customTextField()
+                                    
                                 
-                                SecureField("Confirm Password", text: $confirmPassword)
-                                    .textContentType(.newPassword)
-                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                if !isSignIn {
+                                    SecureField("Confirm Password", text: $confirmPassword)
+                                        .textContentType(.newPassword)
+                                        .customTextField()
+                                }
                             }
                             
                             if let error = viewModel.errorMessage {
@@ -81,14 +87,18 @@ struct SignUpView: View {
                             
                             Button(action: {
                                 Task {
-                                    await viewModel.signUp(email: email, password: password, confirmPassword: confirmPassword)
+                                    if isSignIn {
+                                        await viewModel.signIn(email: email, password: password)
+                                    } else {
+                                        await viewModel.signUp(email: email, password: password, confirmPassword: confirmPassword)
+                                    }
                                 }
                             }) {
                                 if viewModel.isProcessing {
                                     ProgressView()
                                         .progressViewStyle(CircularProgressViewStyle(tint: .white))
                                 } else {
-                                    Text("Create Account")
+                                    Text(isSignIn ? "Sign In" : "Create Account")
                                         .frame(maxWidth: .infinity)
                                         .foregroundColor(.white)
                                 }
@@ -97,6 +107,18 @@ struct SignUpView: View {
                             .background(Color.accentColor)
                             .cornerRadius(10)
                             .disabled(viewModel.isProcessing)
+                            
+                            // Toggle between Sign In and Sign Up
+                            Button(action: {
+                                withAnimation {
+                                    isSignIn.toggle()
+                                    viewModel.errorMessage = nil
+                                }
+                            }) {
+                                Text(isSignIn ? "Need an account? Sign Up" : "Already have an account? Sign In")
+                                    .foregroundColor(.white)
+                                    .underline()
+                            }
                         }
                         .padding(24)
                         .background(.ultraThinMaterial)
@@ -271,6 +293,32 @@ class ProfileViewModel: ObservableObject {
             errorMessage = "Failed to sign out"
         }
     }
+    
+    func signIn(email: String, password: String) async {
+        guard !isProcessing else { return }
+        guard !email.isEmpty else {
+            errorMessage = "Please enter an email"
+            return
+        }
+        guard !password.isEmpty else {
+            errorMessage = "Please enter a password"
+            return
+        }
+        
+        isProcessing = true
+        errorMessage = nil
+        
+        do {
+            // Use proper Firebase Auth type
+            let result = try await Auth.auth().signIn(withEmail: email, password: password)
+            isAnonymous = false
+            userEmail = result.user.email
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        
+        isProcessing = false
+    }
 }
 
 struct ProfileView_Previews: PreviewProvider {
@@ -282,14 +330,14 @@ struct ProfileView_Previews: PreviewProvider {
 
 // Helper View Extension
 extension View {
-    func placeholder<Content: View>(
-        when shouldShow: Bool,
-        alignment: Alignment = .leading,
-        @ViewBuilder placeholder: () -> Content
-    ) -> some View {
-        ZStack(alignment: alignment) {
-            placeholder().opacity(shouldShow ? 1 : 0)
-            self
-        }
+    
+    func customTextField() -> some View {
+        self
+            .textFieldStyle(.plain)
+            .padding(12)
+            .background(Color.white)
+            .accentColor(Color.yellow)
+            .tint(Color.black)
+            .cornerRadius(8)
     }
 }
