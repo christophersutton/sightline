@@ -197,20 +197,6 @@ class LandmarkDetectionViewModel: ObservableObject {
             return
         }
         
-        do {
-            guard let userId = services.auth.userId else { return }
-//            try await services.firestore.unlockNeighborhood(userId: userId, landmark: landmark)
-            
-//            await MainActor.run {
-//                unlockStatus = "Unlocked neighborhood: \(neighborhood.name)"
-//                appState.lastUnlockedNeighborhoodId = neighborhoodId
-//                appState.shouldSwitchToFeed = true
-//            }
-        } catch {
-            await MainActor.run {
-                unlockStatus = "Failed to unlock neighborhood: \(error.localizedDescription)"
-            }
-        }
     }
     
     func updateAppState(_ newAppState: AppState) {
