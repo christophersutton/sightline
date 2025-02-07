@@ -12,6 +12,7 @@ class ContentFeedViewModel: ObservableObject {
     @Published var unlockedNeighborhoods: [Neighborhood] = []
     @Published var selectedNeighborhood: Neighborhood?
     @Published var selectedCategory: FilterCategory = .restaurant
+    @Published var availableCategories: [FilterCategory] = []
     @Published var contentItems: [Content] = []
     @Published var currentIndex: Int = 0 {
         didSet {
@@ -39,7 +40,24 @@ class ContentFeedViewModel: ObservableObject {
         }
     }
     
-    // Called when tab becomes active
+    private func loadAvailableCategories() async {
+        guard let neighborhood = selectedNeighborhood else { return }
+        
+        do {
+            let categories = try await services.firestore.fetchAvailableCategories(
+                for: neighborhood.id!
+            )
+            self.availableCategories = categories
+            
+            if !categories.contains(selectedCategory) && !categories.isEmpty {
+                selectedCategory = categories[0]
+                await loadContent()
+            }
+        } catch {
+            print("❌ Error loading available categories: \(error)")
+        }
+    }
+
     func loadContent() async {
         guard let neighborhood = selectedNeighborhood else {
             print("❌ No neighborhood selected")
@@ -48,6 +66,8 @@ class ContentFeedViewModel: ObservableObject {
         
         isLoading = true
         do {
+            await loadAvailableCategories()
+            
             print("🔄 Loading content for neighborhood: \(neighborhood.name), category: \(selectedCategory.rawValue)")
             
             let content = try await services.firestore.fetchContentByCategory(

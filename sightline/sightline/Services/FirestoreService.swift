@@ -23,6 +23,7 @@ protocol FirestoreServiceProtocol {
     func fetchPlace(id: String) async throws -> Place
     func fetchPlacesInNeighborhood(neighborhoodId: String) async throws -> [Place]
     func addPlace(_ place: Place) async throws
+    func fetchAvailableCategories(for neighborhoodId: String) async throws -> [FilterCategory]
 }
 
 class FirestoreService: FirestoreServiceProtocol {
@@ -141,25 +142,6 @@ class FirestoreService: FirestoreServiceProtocol {
 //        }
 //        return place
 //    }
-} 
-//    func unlockNeighborhood(userId: String, landmark: LandmarkInfo) async throws {
-//        guard let neighborhood = landmark.neighborhood else {
-//            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "No neighborhood found"])
-//        }
-//        
-//        try await db.collection("users")
-//            .document(userId)
-//            .collection("unlocked_neighborhoods")
-//            .document(neighborhood.id)
-//            .setData([
-//                "unlocked_at": FieldValue.serverTimestamp(),
-//                "unlocked_by_landmark": landmark.name,
-//                "landmark_location": GeoPoint(
-//                    latitude: landmark.latitude ?? 0,
-//                    longitude: landmark.longitude ?? 0
-//                )
-//            ])
-//    }
     
     // Helper function to decode GeoBounds
     private func decodeGeoBounds(from data: [String: Any]) throws -> Neighborhood.GeoBounds {
@@ -196,4 +178,50 @@ class FirestoreService: FirestoreServiceProtocol {
             )
         }
     }
+
+    func fetchAvailableCategories(for neighborhoodId: String) async throws -> [FilterCategory] {
+        print("🔍 Fetching available categories for neighborhood: \(neighborhoodId)")
+        
+        let snapshot = try await db.collection("content")
+            .whereField("neighborhoodId", isEqualTo: neighborhoodId)
+            .getDocuments()
+        
+        // Create a Set to store unique categories
+        var categorySet = Set<String>()
+        
+        // Collect all unique categories from content
+        for document in snapshot.documents {
+            if let tags = document.data()["tags"] as? [String] {
+                categorySet.formUnion(tags)
+            }
+        }
+        
+        // Convert strings to FilterCategory and filter out invalid ones
+        let categories = categorySet.compactMap { tagString -> FilterCategory? in
+            return FilterCategory(rawValue: tagString)
+        }.sorted { $0.rawValue < $1.rawValue }
+        
+        print("✅ Found \(categories.count) available categories")
+        return categories
+    }
+} 
+//    func unlockNeighborhood(userId: String, landmark: LandmarkInfo) async throws {
+//        guard let neighborhood = landmark.neighborhood else {
+//            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "No neighborhood found"])
+//        }
+//        
+//        try await db.collection("users")
+//            .document(userId)
+//            .collection("unlocked_neighborhoods")
+//            .document(neighborhood.id)
+//            .setData([
+//                "unlocked_at": FieldValue.serverTimestamp(),
+//                "unlocked_by_landmark": landmark.name,
+//                "landmark_location": GeoPoint(
+//                    latitude: landmark.latitude ?? 0,
+//                    longitude: landmark.longitude ?? 0
+//                )
+//            ])
+//    }
+    
 
