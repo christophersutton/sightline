@@ -24,13 +24,29 @@ struct PlaceDetailView: View {
                 // Content carousel
                 TabView {
                     ForEach(viewModel.contentItems) { content in
-//                        ContentItemView(content: content)
-                      Text("content.title")
+                        Text("content.title")
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
             }
         }
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: {
+                    dismiss()
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 17, weight: .semibold))
+                        Text("Back")
+                    }
+                    .foregroundColor(.white)
+                }
+            }
+        }
+        .toolbarBackground(.black.opacity(0.8), for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .task {
             await viewModel.loadPlaceDetails(placeId: placeId)
             await viewModel.loadPlaceContent(placeId: placeId, initialContentId: initialContentId)
@@ -40,12 +56,7 @@ struct PlaceDetailView: View {
     private var header: some View {
         VStack(spacing: 8) {
             HStack {
-                Button(action: { dismiss() }) {
-                    Image(systemName: "chevron.left")
-                        .font(.title2)
-                        .foregroundColor(.white)
-                }
-                
+                // Remove back button, replaced by navigation toolbar
                 Spacer()
                 
                 if let place = viewModel.place {
@@ -59,11 +70,6 @@ struct PlaceDetailView: View {
                 }
                 
                 Spacer()
-                
-                // Placeholder to balance the back button
-                Image(systemName: "chevron.left")
-                    .font(.title2)
-                    .foregroundColor(.clear)
             }
             .padding()
             

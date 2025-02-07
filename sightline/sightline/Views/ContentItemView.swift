@@ -54,7 +54,7 @@ struct ContentItemView: View {
                                     .foregroundColor(.white)
                                     .multilineTextAlignment(.leading)
                                 
-                                NavigationLink(value: NavigationDestination.placeDetail(placeId: content.placeIds[0], initialContentId: content.id)) {
+                                NavigationLink(value: AppState.NavigationDestination.placeDetail(placeId: content.placeIds[0], initialContentId: content.id)) {
                                     Text(viewModel.placeName ?? "Loading place...")
                                         .font(.subheadline)
                                         .foregroundColor(.white)
