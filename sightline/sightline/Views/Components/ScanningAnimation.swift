@@ -35,10 +35,11 @@ struct ScanningAnimation: View {
                 ScannerCorners()
                     .stroke(Color.white.opacity(0.7), lineWidth: 3)
                     .frame(width: geometry.size.width * 0.8,
-                           height: geometry.size.height * 0.8)
+                           height: geometry.size.height * 0.7)
                     .position(x: geometry.size.width / 2,
                               y: geometry.size.height / 2)
                     .matchedGeometryEffect(id: "scannerCorners", in: namespace)
+                    
             }
             .onAppear {
                 position = scanningTop

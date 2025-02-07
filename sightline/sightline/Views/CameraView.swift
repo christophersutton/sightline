@@ -143,67 +143,95 @@ struct CameraPreviewView: UIViewRepresentable {
 
 // Updated CameraView with flash overlay effect added.
 struct CameraView: View {
-    @StateObject private var cameraController = CameraController()
-    @Environment(\.dismiss) private var dismiss
-    var onFrameCaptured: (UIImage) -> Void
-    @Binding var shouldFlash: Bool
-    
-    @State private var flashOverlayOpacity: Double = 0.0
-    
-    var body: some View {
-        ZStack {
-            if let session = cameraController.captureSession {
-                CameraPreviewView(session: session)
-                
-                // Scanning overlay while capturing
-                if cameraController.isCapturing {
-                    VStack {
-                        Spacer()
-                        Text("Scanning for landmarks...")
-                            .foregroundColor(.white)
-                            .padding()
-                            .background(Color.black.opacity(0.7))
-                            .cornerRadius(10)
-                        Spacer().frame(height: 40)
-                    }
-                }
-            }
-            
-            if let error = cameraController.error {
-                Text(error)
-                    .foregroundColor(.red)
-                    .padding()
-                    .background(Color.black.opacity(0.7))
-                    .cornerRadius(10)
-            }
-            
-            // Flash overlay effect
-            Color.white
-                .opacity(flashOverlayOpacity)
-                .ignoresSafeArea()
+  @StateObject private var cameraController = CameraController()
+  @Environment(\.dismiss) private var dismiss
+  var onFrameCaptured: (UIImage) -> Void
+  @Binding var shouldFlash: Bool
+  
+  @State private var flashOverlayOpacity: Double = 0.0
+  
+  var body: some View {
+    GeometryReader { geometry in
+      ZStack { if let session = cameraController.captureSession {
+        CameraPreviewView(session: session)
+        // Scanning overlay while capturing
+        if cameraController.isCapturing {
+          VStack {
+            Spacer()
+            Text("Scanning for landmarks...")
+              .foregroundColor(.white)
+              .padding()
+              .background(Color.black.opacity(0.7))
+              .cornerRadius(10)
+            Spacer().frame(height: 160)
+          }
         }
-        .onChange(of: shouldFlash) { newValue in
-            if newValue {
-                // Trigger flash animation
-                withAnimation(.easeIn(duration: 0.1)) {
-                    flashOverlayOpacity = 1.0
-                }
-                withAnimation(.easeOut(duration: 0.3).delay(0.1)) {
-                    flashOverlayOpacity = 0.0
-                }
-                // Reset the flag
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    shouldFlash = false
-                }
-            }
+        
+        if let error = cameraController.error {
+          Text(error)
+            .foregroundColor(.red)
+            .padding()
+            .background(Color.black.opacity(0.7))
+            .cornerRadius(10)
         }
-        .onAppear {
-            cameraController.startCapturing { image in
-                onFrameCaptured(image)
-            }
+        
+        // Flash overlay effect
+        Color.white
+          .opacity(flashOverlayOpacity)
+          .ignoresSafeArea()
+        
+        
+      }
+      }
+      .ignoresSafeArea(.all, edges: .all)
+      .onChange(of: shouldFlash) { newValue in
+        if newValue {
+          // Trigger flash animation
+          withAnimation(.easeIn(duration: 0.1)) {
+            flashOverlayOpacity = 1.0
+          }
+          withAnimation(.easeOut(duration: 0.3).delay(0.1)) {
+            flashOverlayOpacity = 0.0
+          }
+          // Reset the flag
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            shouldFlash = false
+          }
         }
-        .onDisappear {
-            cameraController.stopCapturing()
+      }
+      .onAppear {
+        cameraController.startCapturing { image in
+          onFrameCaptured(image)
         }
+      }
+      .onDisappear {
+        cameraController.stopCapturing()
+      }
     }
-} 
+  }
+}
+#if DEBUG
+// Mock preview view that replaces camera feed with a color
+private struct MockCameraPreviewView: View {
+    var body: some View {
+        Color.gray // Simulates camera view
+    }
+}
+
+struct CameraView_Previews: PreviewProvider {
+    static var previews: some View {
+        CameraView(
+            onFrameCaptured: { _ in },
+            shouldFlash: .constant(false)
+        )
+        .previewDisplayName("Camera View")
+        
+        // Preview with flash effect
+        CameraView(
+            onFrameCaptured: { _ in },
+            shouldFlash: .constant(true)
+        )
+        .previewDisplayName("With Flash")
+    }
+}
+#endif 

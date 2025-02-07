@@ -302,7 +302,7 @@ struct LandmarkDetectionView: View {
                       },
                       shouldFlash: $shouldFlash
                     )
-                    .ignoresSafeArea()
+                    
                     
                     // Close Button - now respecting safe area
                     VStack {
@@ -320,7 +320,7 @@ struct LandmarkDetectionView: View {
                         .padding(.leading)
                         Spacer()
                       }
-                      .padding(.top, geometry.safeAreaInsets.top)
+                      .padding(.top, geometry.safeAreaInsets.top + 40)
                       Spacer()
                     }
                     
