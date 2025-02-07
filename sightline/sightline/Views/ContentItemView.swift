@@ -41,45 +41,42 @@ struct ContentItemView: View {
                         .scaleEffect(1.5)
                 }
                 
-                // Overlay info
+                // Overlay info - restructured
                 VStack {
                     Spacer()
                     
-                    // Place pill button
-                    Button(action: {
-                        appState.navigationPath.append(
-                            AppState.NavigationDestination.placeDetail(
-                                placeId: content.placeIds[0],
-                                initialContentId: content.id
-                            )
-                        )
-                    }) {
-                        Text("View Place") // We'll style this better later
-                            .padding()
-                            .background(.ultraThinMaterial)
-                            .cornerRadius(20)
-                    }
-                    
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(content.caption)
-                                .font(.headline)
-                                .foregroundColor(.white)
-                            
-                            NavigationLink(value: NavigationDestination.placeDetail(placeId: content.placeIds[0], initialContentId: content.id)) {
-                                Text(viewModel.placeName ?? "Loading place...")
-                                    .font(.subheadline)
+                    // Content info overlay
+                    VStack(spacing: 8) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(content.caption)
+                                    .font(.headline)
                                     .foregroundColor(.white)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    .background(.ultraThinMaterial)
-                                    .cornerRadius(16)
+                                    .multilineTextAlignment(.leading)
+                                
+                                NavigationLink(value: NavigationDestination.placeDetail(placeId: content.placeIds[0], initialContentId: content.id)) {
+                                    Text(viewModel.placeName ?? "Loading place...")
+                                        .font(.subheadline)
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        .background(.ultraThinMaterial)
+                                        .cornerRadius(16)
+                                }
                             }
+                            Spacer()
                         }
-                        .padding()
-                        
-                        Spacer()
+                        .padding(.horizontal)
+                        .padding(.bottom, 120) // Increased bottom padding to bring content up higher
                     }
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [.clear, .black.opacity(0.3)]),
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .padding(.top, -100) // Extend gradient upward
+                    )
                 }
             }
         }

@@ -108,9 +108,11 @@ final class ContentFeedViewModel: ObservableObject {
             self.places = placeMap
             print("✅ Loaded \(content.count) content items")
             
-            // Reset to first item; this assignment will trigger updateActiveVideo via currentIndex's didSet.
+            // Force preload current index first
             if !content.isEmpty {
-                self.currentIndex = 0
+                let urls = content.map { $0.videoUrl }
+                videoManager.preloadVideos(for: urls, at: 0)
+                await videoManager.activatePlayerAsync(for: content[0].videoUrl)
             }
             
             isLoading = false
