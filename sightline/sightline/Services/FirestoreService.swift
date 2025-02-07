@@ -5,18 +5,15 @@ import FirebaseAuth
 
 protocol FirestoreServiceProtocol {
     // Neighborhoods
-//    func unlockNeighborhood(userId: String, landmark: LandmarkInfo) async throws
     func fetchUnlockedNeighborhoods(for userId: String) async throws -> [Neighborhood]
     
     // Test Data
-    func populateTestData() async throws
-    func deleteAllTestData() async throws
+//    func populateTestData() async throws
+//    func deleteAllTestData() async throws
     
     // Content
     func fetchContentForPlace(placeId: String) async throws -> [Content]
     func fetchContentByCategory(category: FilterCategory, neighborhoodId: String?) async throws -> [Content]
-    
-    // Detection
     func saveDetectionResult(landmarkName: String) async throws
     
     // Places
@@ -24,6 +21,10 @@ protocol FirestoreServiceProtocol {
     func fetchPlacesInNeighborhood(neighborhoodId: String) async throws -> [Place]
     func addPlace(_ place: Place) async throws
     func fetchAvailableCategories(for neighborhoodId: String) async throws -> [FilterCategory]
+    
+    // New for saving places
+    func savePlaceForUser(userId: String, placeId: String) async throws
+    func fetchSavedPlaceIds(for userId: String) async throws -> [String]
 }
 
 class FirestoreService: FirestoreServiceProtocol {
@@ -63,12 +64,6 @@ class FirestoreService: FirestoreServiceProtocol {
         }
     }
     
-    func addContent(_ content: Content) async throws {
-        try db.collection("content")
-            .document(content.id)
-            .setData(from: content)
-    }
-      
     func fetchContentByCategory(category: FilterCategory, neighborhoodId: String?) async throws -> [Content] {
         print("🔍 Fetching content for category: \(category.rawValue), neighborhood: \(neighborhoodId ?? "all")")
         
@@ -135,14 +130,6 @@ class FirestoreService: FirestoreServiceProtocol {
         return neighborhoods
     }
     
-//    func fetchPlace(id: String) async throws -> Place {
-//        let snapshot = try await db.collection("places").document(id).getDocument()
-//        guard let place = try? snapshot.data(as: Place.self) else {
-//            throw FirestoreError.decodingError
-//        }
-//        return place
-//    }
-    
     // Helper function to decode GeoBounds
     private func decodeGeoBounds(from data: [String: Any]) throws -> Neighborhood.GeoBounds {
         guard let northeast = data["northeast"] as? [String: Any],
@@ -204,24 +191,28 @@ class FirestoreService: FirestoreServiceProtocol {
         print("✅ Found \(categories.count) available categories")
         return categories
     }
-} 
-//    func unlockNeighborhood(userId: String, landmark: LandmarkInfo) async throws {
-//        guard let neighborhood = landmark.neighborhood else {
-//            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "No neighborhood found"])
-//        }
-//        
-//        try await db.collection("users")
-//            .document(userId)
-//            .collection("unlocked_neighborhoods")
-//            .document(neighborhood.id)
-//            .setData([
-//                "unlocked_at": FieldValue.serverTimestamp(),
-//                "unlocked_by_landmark": landmark.name,
-//                "landmark_location": GeoPoint(
-//                    latitude: landmark.latitude ?? 0,
-//                    longitude: landmark.longitude ?? 0
-//                )
-//            ])
-//    }
     
-
+    // MARK: - User Places (new)
+    
+    /// Save a place under the user's saved_places subcollection
+    func savePlaceForUser(userId: String, placeId: String) async throws {
+        let docRef = db.collection("users")
+            .document(userId)
+            .collection("saved_places")
+            .document(placeId)
+        
+        try await docRef.setData([
+            "savedAt": FieldValue.serverTimestamp()
+        ])
+    }
+    
+    /// Fetch only the IDs of saved places; we can fetch full docs separately
+    func fetchSavedPlaceIds(for userId: String) async throws -> [String] {
+        let snapshot = try await db.collection("users")
+            .document(userId)
+            .collection("saved_places")
+            .getDocuments()
+        
+        return snapshot.documents.map { $0.documentID }
+    }
+}

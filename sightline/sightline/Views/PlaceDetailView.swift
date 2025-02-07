@@ -1,12 +1,14 @@
 import SwiftUI
 import MapKit
 import FirebaseFirestore
+import FirebaseAuth
 import os
 
 struct PlaceDetailView: View {
     let placeId: String
     @StateObject private var viewModel: PlaceDetailViewModel
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var appState: AppState  // for navigation
     
     // Add state for sheet height
     @State private var sheetHeight: CGFloat = UIScreen.main.bounds.height * 0.7
@@ -51,6 +53,29 @@ struct PlaceDetailView: View {
             .padding(.vertical, 12)
             .padding(.horizontal, 24)
             .background(Color.blue)
+            .cornerRadius(10)
+        }
+        .disabled(viewModel.place == nil)
+        .opacity(viewModel.place == nil ? 0.6 : 1.0)
+    }
+    
+    var savePlaceButton: some View {
+        Button(action: {
+            Task {
+                await viewModel.savePlace()
+                // After saving, navigate to Profile tab
+                appState.shouldSwitchToProfile = true
+                dismiss()
+            }
+        }) {
+            HStack {
+                Image(systemName: "heart.fill")
+                Text("Save Place")
+            }
+            .foregroundColor(.white)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 24)
+            .background(Color.pink)
             .cornerRadius(10)
         }
         .disabled(viewModel.place == nil)
@@ -123,8 +148,7 @@ struct PlaceDetailView: View {
                     mapView
                     
                     directionsButton
-                        .padding(.horizontal)
-                        .padding(.top, 8)
+                    savePlaceButton
                 }
             }
             .frame(maxWidth: geometry.size.width)
@@ -166,6 +190,17 @@ final class PlaceDetailViewModel: ObservableObject {
             await MainActor.run {
                 self.errorMessage = "Unable to load place details"
             }
+        }
+    }
+    
+    func savePlace() async {
+        guard let place = self.place,
+              let userId = Auth.auth().currentUser?.uid else { return }
+        
+        do {
+            try await services.firestore.savePlaceForUser(userId: userId, placeId: place.id)
+        } catch {
+            self.errorMessage = "Error saving place: \(error.localizedDescription)"
         }
     }
 }

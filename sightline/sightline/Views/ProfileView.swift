@@ -50,10 +50,18 @@ struct AuthView: View {
                                 Text(isSignIn ? "Sign In" : "Create an Account")
                                     .font(.custom("Baskerville-Bold", size: 28))
                                 
-                                Text(isSignIn ? "Welcome Back" : "Save Places, Post Content, and More")
-                                    .font(.custom("Baskerville", size: 18))
-                                    .foregroundColor(.secondary)
-                                    .multilineTextAlignment(.center)
+                                if viewModel.hasPendingSavedPlaces {
+                                    Text("Sign up to save your places!")
+                                        .font(.custom("Baskerville", size: 18))
+                                        .foregroundColor(.yellow)
+                                        .multilineTextAlignment(.center)
+                                        .padding(.horizontal)
+                                } else {
+                                    Text(isSignIn ? "Welcome Back" : "Save Places, Post Content, and More")
+                                        .font(.custom("Baskerville", size: 18))
+                                        .foregroundColor(.secondary)
+                                        .multilineTextAlignment(.center)
+                                }
                             }
                             
                             // Form
@@ -199,6 +207,31 @@ struct UserProfileView: View {
                         
                         // Actions Container
                         VStack(spacing: 16) {
+                            // Saved Places Section
+                            if !viewModel.savedPlaces.isEmpty {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text("Saved Places")
+                                        .font(.title3)
+                                        .fontWeight(.bold)
+                                    
+                                    ForEach(viewModel.savedPlaces, id: \.id) { place in
+                                        VStack(alignment: .leading) {
+                                            Text(place.name)
+                                                .font(.subheadline)
+                                                .fontWeight(.semibold)
+                                            Text(place.address)
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                        .padding(.vertical, 8)
+                                        Divider()
+                                    }
+                                }
+                                .padding()
+                                .background(.ultraThinMaterial)
+                                .cornerRadius(12)
+                            }
+                            
                             Button(action: {
                                 Task {
                                     await viewModel.signOut()
@@ -212,15 +245,12 @@ struct UserProfileView: View {
                                     .cornerRadius(10)
                             }
                             
-                            
-                            
-                           
-                            
                         }
                         .padding(24)
                         .background(.ultraThinMaterial)
                         .cornerRadius(16)
                         .shadow(radius: 8)
+                        
                     }
                     .padding()
                 }
@@ -230,6 +260,11 @@ struct UserProfileView: View {
             .ignoresSafeArea(edges: .top)
         }
         .ignoresSafeArea(edges: .top)
+        .onAppear {
+            Task {
+                await viewModel.loadSavedPlaces()
+            }
+        }
     }
 }
 
@@ -257,14 +292,39 @@ class ProfileViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var userEmail: String?
     
+    // New: maintain a list of saved Places for display
+    @Published var savedPlaces: [Place] = []
+    
+    @Published var hasPendingSavedPlaces = false
+    
     private let auth = ServiceContainer.shared.auth
+    private let firestoreService = ServiceContainer.shared.firestore
     
     func checkAuthState() {
         if let user = Auth.auth().currentUser {
             isAnonymous = user.isAnonymous
             userEmail = user.email
+            
+            // Check for pending saved places if anonymous
+            if user.isAnonymous {
+                Task {
+                    await checkPendingSavedPlaces()
+                }
+            }
         }
         isLoading = false
+    }
+    
+    private func checkPendingSavedPlaces() async {
+        guard let userId = Auth.auth().currentUser?.uid else { return }
+        do {
+            let placeIds = try await firestoreService.fetchSavedPlaceIds(for: userId)
+            await MainActor.run {
+                self.hasPendingSavedPlaces = !placeIds.isEmpty
+            }
+        } catch {
+            print("Error checking pending saved places: \(error)")
+        }
     }
     
     func signUp(email: String, password: String, confirmPassword: String) async {
@@ -307,6 +367,7 @@ class ProfileViewModel: ObservableObject {
             // due to our app initialization
             isAnonymous = true
             userEmail = nil
+            savedPlaces.removeAll()
         } catch {
             errorMessage = "Failed to sign out"
         }
@@ -327,7 +388,6 @@ class ProfileViewModel: ObservableObject {
         errorMessage = nil
         
         do {
-            // Use proper Firebase Auth type
             let result = try await Auth.auth().signIn(withEmail: email, password: password)
             isAnonymous = false
             userEmail = result.user.email
@@ -354,21 +414,43 @@ class ProfileViewModel: ObservableObject {
             isAnonymous = true
             userEmail = nil
             errorMessage = nil
+            savedPlaces.removeAll()
             print("✅ View model state reset")
             
             print("⏳ Waiting for Firebase to auto-create anonymous user...")
-            // Maybe add a small delay here to ensure Firebase has time to initialize
             try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
             
-            // Verify new state
             if let currentUser = Auth.auth().currentUser {
-                print("✅ New user state: anonymous=\(currentUser.isAnonymous), email=\(currentUser.email ?? "nil")")
+                print("✅ New user state: anonymous=\(currentUser.isAnonymous), email=\(currentUser.email ?? "")")
             } else {
                 print("⚠️ No current user after reset")
             }
         } catch {
             print("❌ Reset failed with error: \(error.localizedDescription)")
             errorMessage = "Failed to reset account: \(error.localizedDescription)"
+        }
+    }
+    
+    // Fetch the user's saved places from Firestore
+    func loadSavedPlaces() async {
+        guard let userId = Auth.auth().currentUser?.uid, !isAnonymous else { return }
+        do {
+            let placeIds = try await firestoreService.fetchSavedPlaceIds(for: userId)
+            var fetched: [Place] = []
+            for pid in placeIds {
+                do {
+                    let place = try await firestoreService.fetchPlace(id: pid)
+                    fetched.append(place)
+                } catch {
+                    print("Failed to fetch place (\(pid)): \(error)")
+                }
+            }
+            // Sort or manipulate as needed
+            await MainActor.run {
+                self.savedPlaces = fetched
+            }
+        } catch {
+            print("Error fetching saved places: \(error)")
         }
     }
 }

@@ -61,6 +61,7 @@ struct MainTabView: View {
                 print("Failed to sign in: \(error)")
             }
         }
+        // Switch to Feed when requested
         .onChange(of: appState.shouldSwitchToFeed) { oldValue, newValue in
             if newValue {
                 withAnimation {
@@ -69,10 +70,20 @@ struct MainTabView: View {
                 appState.shouldSwitchToFeed = false
             }
         }
+        // Pause video if leaving feed
         .onChange(of: selectedTab) { oldValue, newValue in
             if oldValue == 1 && newValue != 1 {
                 // Instead of cleaning up state, just pause the current video.
                 feedViewModel.videoManager.currentPlayer?.pause()
+            }
+        }
+        // Switch to Profile when requested
+        .onChange(of: appState.shouldSwitchToProfile) { oldValue, newValue in
+            if newValue {
+                withAnimation {
+                    selectedTab = 2
+                }
+                appState.shouldSwitchToProfile = false
             }
         }
     }
