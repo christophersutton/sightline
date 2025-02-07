@@ -339,24 +339,36 @@ class ProfileViewModel: ObservableObject {
     }
     
     func resetAccount() async {
+        print("🔄 Starting account reset...")
         do {
-            // Sign out current user
+            print("📤 Attempting to sign out current user...")
             try await auth.signOut()
+            print("✅ Sign out successful")
             
-            // Clear any cached data
+            print("🗑️ Clearing UserDefaults...")
             UserDefaults.standard.removePersistentDomain(forName: Bundle.main.bundleIdentifier!)
+            print("✅ UserDefaults cleared")
             
             // Clear any other app state/cache as needed
-            // TODO: Add other cache clearing here if needed
-            
-            // Reset view model state
+            print("🔄 Resetting view model state...")
             isAnonymous = true
             userEmail = nil
             errorMessage = nil
+            print("✅ View model state reset")
             
-            // Firebase will auto-create new anonymous user due to app initialization
+            print("⏳ Waiting for Firebase to auto-create anonymous user...")
+            // Maybe add a small delay here to ensure Firebase has time to initialize
+            try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
+            
+            // Verify new state
+            if let currentUser = Auth.auth().currentUser {
+                print("✅ New user state: anonymous=\(currentUser.isAnonymous), email=\(currentUser.email ?? "nil")")
+            } else {
+                print("⚠️ No current user after reset")
+            }
         } catch {
-            errorMessage = "Failed to reset account"
+            print("❌ Reset failed with error: \(error.localizedDescription)")
+            errorMessage = "Failed to reset account: \(error.localizedDescription)"
         }
     }
 }

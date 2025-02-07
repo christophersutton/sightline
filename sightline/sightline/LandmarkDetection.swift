@@ -367,11 +367,17 @@ struct LandmarkDetectionView: View {
                                     Text("Discover Your City")
                                         .font(.custom("Baskerville-Bold", size: 32))
                                         .multilineTextAlignment(.center)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.horizontal, 24)
                                     
                                     Text("Capture landmarks to unlock neighborhood content and explore local stories")
                                         .font(.custom("Baskerville", size: 20))
                                         .foregroundColor(.white)
                                         .multilineTextAlignment(.center)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.horizontal, 24)
                                     
                                     Button(action: {
                                         isCameraMode = true
