@@ -429,7 +429,7 @@ struct LandmarkDetectionView: View {
                         .clipShape(Circle())
                     }
                     .padding(.trailing, 16)
-                    .padding(.bottom, 16)
+                    .padding(.bottom, 160)
                   }
                 }
 #endif
@@ -518,8 +518,8 @@ struct LandmarkDetectionView: View {
         // 6) Wait for fade
         try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
         
-        // 7) Navigate to detail
-        navigateToLandmark = landmark
+        // 7) Switch to feed tab
+        appState.shouldSwitchToFeed = true
         
         // 8) Switch out of camera mode
         isCameraMode = false

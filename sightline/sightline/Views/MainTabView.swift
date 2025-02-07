@@ -4,6 +4,7 @@ import FirebaseAuth
 struct MainTabView: View {
     @StateObject private var appState = AppState()
     @State private var selectedTab = 0
+    @StateObject private var feedViewModel = ContentFeedViewModel()
     private let services = ServiceContainer.shared
     
     var body: some View {
@@ -19,6 +20,7 @@ struct MainTabView: View {
             // Content Feed Tab
             ContentFeedView()
                 .environmentObject(appState)
+                .environmentObject(feedViewModel)
                 .tabItem {
                     Label("Feed", systemImage: "play.square.stack")
                 }
@@ -67,5 +69,11 @@ struct MainTabView: View {
                 appState.shouldSwitchToFeed = false
             }
         }
+        .onChange(of: selectedTab) { oldValue, newValue in
+            if oldValue == 1 && newValue != 1 {
+                // Instead of cleaning up state, just pause the current video.
+                feedViewModel.videoManager.currentPlayer?.pause()
+            }
+        }
     }
-} 
+}

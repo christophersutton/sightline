@@ -24,7 +24,6 @@ struct ScanningTransitionView: View {
                     )
                     // Increase the height a lot more then add a scale effect
                     .frame(height: animateTransition ? 100 : 3)
-                    .scaleEffect(animateTransition ? 1.5 : 1)
                     .shadow(color: .blue.opacity(animateTransition ? 1.0 : 0.5),
                             radius: animateTransition ? 30 : 4)
                     .matchedGeometryEffect(id: "scannerLine", in: namespace)

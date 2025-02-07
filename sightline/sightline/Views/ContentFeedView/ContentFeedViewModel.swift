@@ -26,6 +26,8 @@ final class ContentFeedViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var places: [String: Place] = [:] // Cache of places by ID
     
+    @Published private(set) var hasLoadedNeighborhoods = false
+    
     let videoManager = VideoPlayerManager()
     private let services = ServiceContainer.shared
 
@@ -43,12 +45,22 @@ final class ContentFeedViewModel: ObservableObject {
     }
     
     func loadUnlockedNeighborhoods() async {
+        // Update the loading state tracking
+        DispatchQueue.main.async {
+            self.isLoading = true
+            self.hasLoadedNeighborhoods = false
+        }
+        
         // First try to load from preloaded data
         if let data = UserDefaults.standard.data(forKey: "preloadedNeighborhoods"),
            let neighborhoods = try? JSONDecoder().decode([Neighborhood].self, from: data) {
             self.unlockedNeighborhoods = neighborhoods
             if self.selectedNeighborhood == nil {
                 self.selectedNeighborhood = neighborhoods.first
+            }
+            DispatchQueue.main.async {
+                self.hasLoadedNeighborhoods = true
+                self.isLoading = false
             }
             return
         }
@@ -62,8 +74,16 @@ final class ContentFeedViewModel: ObservableObject {
             if self.selectedNeighborhood == nil {
                 self.selectedNeighborhood = neighborhoods.first
             }
+            DispatchQueue.main.async {
+                self.hasLoadedNeighborhoods = true
+                self.isLoading = false
+            }
         } catch {
             print("Error loading neighborhoods: \(error)")
+            DispatchQueue.main.async {
+                self.hasLoadedNeighborhoods = true
+                self.isLoading = false
+            }
         }
     }
     

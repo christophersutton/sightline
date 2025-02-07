@@ -3,7 +3,8 @@ import UIKit
 
 struct ContentFeedView: View {
     @EnvironmentObject var appState: AppState
-    @StateObject private var viewModel = ContentFeedViewModel()
+    @EnvironmentObject var viewModel: ContentFeedViewModel  // <-- Replaced local @StateObject
+
     @State private var showingNeighborhoods = false
     @State private var showingCategories = false
     @State private var selectedPlaceId: String? = nil
@@ -13,8 +14,9 @@ struct ContentFeedView: View {
             Color.black.ignoresSafeArea()
             
             if viewModel.isLoading {
-                ProgressView()
-                    .scaleEffect(1.5)
+                LoadingState()
+            } else if !viewModel.hasLoadedNeighborhoods {
+                LoadingState()
             } else if viewModel.unlockedNeighborhoods.isEmpty {
                 EmptyNeighborhoodState()
             } else if viewModel.contentItems.isEmpty {
@@ -45,7 +47,7 @@ struct ContentFeedView: View {
                 .zIndex(0)
             }
             
-            // Menus (without separate trigger buttons)
+            // Menus
             HStack(alignment: .top) {
                 // Neighborhoods Menu
                 FloatingMenu(
@@ -70,7 +72,7 @@ struct ContentFeedView: View {
                 
                 // Categories Menu
                 FloatingMenu(
-                  items: viewModel.availableCategories,
+                    items: viewModel.availableCategories,
                     itemTitle: { $0.rawValue.capitalized },
                     selectedId: viewModel.selectedCategory.rawValue,
                     onSelect: { category in
@@ -82,12 +84,12 @@ struct ContentFeedView: View {
                 )
             }
             .padding(.top, 24)
-            .padding(.horizontal, 16)  // Slightly increased padding for better edge spacing
+            .padding(.horizontal, 16)
             .zIndex(2)
         }
         .sheet(item: Binding(
-            get: { 
-                selectedPlaceId.map { PlaceDetailPresentation(placeId: $0) } 
+            get: {
+                selectedPlaceId.map { PlaceDetailPresentation(placeId: $0) }
             },
             set: { presentation in
                 selectedPlaceId = presentation?.placeId
@@ -99,17 +101,31 @@ struct ContentFeedView: View {
                 .presentationBackgroundInteraction(.enabled)
         }
         .task {
-            await viewModel.loadUnlockedNeighborhoods()
-            await viewModel.loadContent()
-        }
-        .onChange(of: appState.lastUnlockedNeighborhoodId) { oldValue, newValue in
-            if let newId = newValue,
-               let neighborhood = viewModel.unlockedNeighborhoods.first(where: { $0.id == newId }) {
-                viewModel.selectedNeighborhood = neighborhood
-                Task {
-                    await viewModel.loadContent()
-                }
+            if !viewModel.hasLoadedNeighborhoods {
+                await viewModel.loadUnlockedNeighborhoods()
+                await viewModel.loadContent()
+            } else if viewModel.contentItems.isEmpty {
+                await viewModel.loadContent()
+            } else {
+                viewModel.videoManager.currentPlayer?.play()
             }
+        }
+    }
+}
+
+struct LoadingState: View {
+    var body: some View {
+        GeometryReader { geometry in
+            VStack(spacing: 16) {
+                ProgressView()
+                    .scaleEffect(1.5)
+                    .tint(.white)
+                
+                Text("Loading...")
+                    .font(.custom("Baskerville", size: 18))
+                    .foregroundColor(.white.opacity(0.8))
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
         }
     }
 }
@@ -178,5 +194,3 @@ struct PlaceDetailPresentation: Identifiable {
     let id = UUID()
     let placeId: String
 }
-
-

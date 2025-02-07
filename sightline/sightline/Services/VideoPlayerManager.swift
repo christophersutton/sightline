@@ -27,7 +27,7 @@ final class VideoPlayerManager: ObservableObject {
     private var currentlyPlayingUrl: String?
     
     func prepareForDisplay(url: String) async {
-        cleanup() // Clean up any existing player first
+        await cleanup() // Clean up any existing player first
         isLoading = true
         error = nil
         
@@ -146,7 +146,7 @@ final class VideoPlayerManager: ObservableObject {
         print("🎥 Activating player for URL: \(url)")
         if let player = preloadedPlayers[url] {
             print("✅ Found preloaded player")
-            cleanup()
+            await cleanup()
             currentPlayer = player
             currentlyPlayingUrl = url
             await player.seek(to: .zero)
@@ -163,7 +163,7 @@ final class VideoPlayerManager: ObservableObject {
         return try await storageRef.downloadURL()
     }
     
-    func cleanup() {
+    func cleanup() async {
         currentPlayer?.pause()
         playerLooper = nil
         currentPlayer = nil
