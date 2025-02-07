@@ -4,20 +4,17 @@ import FirebaseAuth
 struct ProfileView: View {
     @EnvironmentObject private var appState: AppState
     @StateObject private var viewModel = ProfileViewModel()
-    private let services = ServiceContainer.shared
     
     var body: some View {
-        NavigationView {
-            Group {
-                if viewModel.isLoading {
-                    ProgressView()
-                } else if viewModel.isAnonymous {
-                    SignUpView(viewModel: viewModel)
-                } else {
-                    UserProfileView(viewModel: viewModel)
-                }
+        ZStack {
+            if viewModel.isLoading {
+                ProgressView()
+            } else if viewModel.isAnonymous {
+                SignUpView(viewModel: viewModel)
+            } else {
+                UserProfileView(viewModel: viewModel)
+                    .navigationTitle("Profile")
             }
-            .navigationTitle("Profile")
         }
         .onAppear {
             viewModel.checkAuthState()
@@ -33,50 +30,87 @@ struct SignUpView: View {
     @State private var confirmPassword = ""
     
     var body: some View {
-        VStack(spacing: 20) {
-            Text("Create Account")
-                .font(.title2)
-                .padding(.top)
-            
-            VStack(alignment: .leading, spacing: 16) {
-                TextField("Email", text: $email)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .textContentType(.emailAddress)
-                    .autocapitalization(.none)
-                
-                SecureField("Password", text: $password)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .textContentType(.newPassword)
-                
-                SecureField("Confirm Password", text: $confirmPassword)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .textContentType(.newPassword)
-            }
-            .padding(.horizontal)
-            
-            if let error = viewModel.errorMessage {
-                Text(error)
-                    .foregroundColor(.red)
-                    .font(.caption)
-            }
-            
-            Button(action: {
-                Task {
-                    await viewModel.signUp(email: email, password: password, confirmPassword: confirmPassword)
-                }
-            }) {
-                Text("Sign Up")
-                    .frame(maxWidth: .infinity)
+        GeometryReader { geometry in
+            ScrollView {
+                ZStack {
+                    // Background Image
+                    Image("profile-bg")
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                        .ignoresSafeArea()
+                    
+                    // Content
+                    VStack(spacing: 24) {
+                        VStack(spacing: 24) {
+                            // Header
+                            VStack(spacing: 8) {
+                                Text("Create an Account")
+                                    .font(.custom("Baskerville-Bold", size: 28))
+                                
+                                Text("Save Places, Post Content, and More")
+                                    .font(.custom("Baskerville", size: 18))
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.center)
+                            }
+                            
+                            // Form
+                            VStack(spacing: 16) {
+                                TextField("Email", text: $email)
+                                    .textContentType(.emailAddress)
+                                    .keyboardType(.emailAddress)
+                                    .autocapitalization(.none)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                
+                                SecureField("Password", text: $password)
+                                    .textContentType(.newPassword)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                
+                                SecureField("Confirm Password", text: $confirmPassword)
+                                    .textContentType(.newPassword)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                            }
+                            
+                            if let error = viewModel.errorMessage {
+                                Text(error)
+                                    .foregroundColor(.red)
+                                    .font(.caption)
+                                    .padding(.horizontal)
+                            }
+                            
+                            Button(action: {
+                                Task {
+                                    await viewModel.signUp(email: email, password: password, confirmPassword: confirmPassword)
+                                }
+                            }) {
+                                if viewModel.isProcessing {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                } else {
+                                    Text("Create Account")
+                                        .frame(maxWidth: .infinity)
+                                        .foregroundColor(.white)
+                                }
+                            }
+                            .padding()
+                            .background(Color.accentColor)
+                            .cornerRadius(10)
+                            .disabled(viewModel.isProcessing)
+                        }
+                        .padding(24)
+                        .background(.ultraThinMaterial)
+                        .cornerRadius(16)
+                        .shadow(radius: 8)
+                    }
                     .padding()
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
+                }
+                .frame(minHeight: geometry.size.height)
             }
-            .padding(.horizontal)
-            .disabled(viewModel.isProcessing)
-            
-            Spacer()
+            .scrollDismissesKeyboard(.interactively)
+            .ignoresSafeArea(edges: .top)
         }
+        .ignoresSafeArea(edges: .top)
     }
 }
 
@@ -85,42 +119,92 @@ struct UserProfileView: View {
     @ObservedObject var viewModel: ProfileViewModel
     
     var body: some View {
-        VStack(spacing: 20) {
-            // User info
-            VStack(spacing: 12) {
-                Image(systemName: "person.circle.fill")
-                    .resizable()
-                    .frame(width: 80, height: 80)
-                    .foregroundColor(.gray)
-                
-                Text(viewModel.userEmail ?? "")
-                    .font(.headline)
-            }
-            .padding()
-            
-            Button(action: {
-                Task {
-                    await viewModel.signOut()
-                }
-            }) {
-                Text("Sign Out")
-                    .frame(maxWidth: .infinity)
+        GeometryReader { geometry in
+            ScrollView {
+                ZStack {
+                    // Background Image
+                    Image("profile-bg")
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                        .ignoresSafeArea()
+                    
+                    // Content
+                    VStack(spacing: 24) {
+                        // Profile Container
+                        VStack(spacing: 20) {
+                            // Avatar and Email
+                            VStack(spacing: 12) {
+                                Image(systemName: "person.circle.fill")
+                                    .resizable()
+                                    .frame(width: 80, height: 80)
+                                    .foregroundColor(.white)
+                                
+                                Text(viewModel.userEmail ?? "")
+                                    .font(.headline)
+                            }
+                            
+                            Divider()
+                                .background(.white.opacity(0.5))
+                            
+                            // Stats or other info could go here
+                            HStack(spacing: 32) {
+                                StatView(title: "Places", value: "0")
+                                StatView(title: "Posts", value: "0")
+                                StatView(title: "Likes", value: "0")
+                            }
+                        }
+                        .padding(24)
+                        .background(.ultraThinMaterial)
+                        .cornerRadius(16)
+                        .shadow(radius: 8)
+                        
+                        // Actions Container
+                        VStack(spacing: 16) {
+                            Button(action: {
+                                Task {
+                                    await viewModel.signOut()
+                                }
+                            }) {
+                                Text("Sign Out")
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                                    .background(Color.red.opacity(0.8))
+                                    .foregroundColor(.white)
+                                    .cornerRadius(10)
+                            }
+                            
+                            // Add more actions here if needed
+                        }
+                        .padding(24)
+                        .background(.ultraThinMaterial)
+                        .cornerRadius(16)
+                        .shadow(radius: 8)
+                    }
                     .padding()
-                    .background(Color.red)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
+                }
+                .frame(minHeight: geometry.size.height)
             }
-            .padding(.horizontal)
-            
-            Spacer()
-            
-            /* Debug Controls commented out
-            #if DEBUG
-            GroupBox(label: Text("Debug Controls")) {
-                // ... existing debug controls ...
-            }
-            #endif
-            */
+            .scrollDismissesKeyboard(.interactively)
+            .ignoresSafeArea(edges: .top)
+        }
+        .ignoresSafeArea(edges: .top)
+    }
+}
+
+// Helper Views
+struct StatView: View {
+    let title: String
+    let value: String
+    
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .font(.headline)
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
     }
 }
@@ -193,5 +277,19 @@ struct ProfileView_Previews: PreviewProvider {
     static var previews: some View {
         ProfileView()
             .environmentObject(AppState())
+    }
+}
+
+// Helper View Extension
+extension View {
+    func placeholder<Content: View>(
+        when shouldShow: Bool,
+        alignment: Alignment = .leading,
+        @ViewBuilder placeholder: () -> Content
+    ) -> some View {
+        ZStack(alignment: alignment) {
+            placeholder().opacity(shouldShow ? 1 : 0)
+            self
+        }
     }
 }

@@ -15,6 +15,8 @@ struct ContentFeedView: View {
             if viewModel.isLoading {
                 ProgressView()
                     .scaleEffect(1.5)
+            } else if viewModel.unlockedNeighborhoods.isEmpty {
+                EmptyNeighborhoodState()
             } else if viewModel.contentItems.isEmpty {
                 Text("No content available")
                     .foregroundColor(.white)
@@ -109,6 +111,52 @@ struct ContentFeedView: View {
                 }
             }
         }
+    }
+}
+
+struct EmptyNeighborhoodState: View {
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                ZStack {
+                    // Background Image
+                    Image("nocontent")
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                        .ignoresSafeArea()
+                    
+                    // Content Container
+                    VStack(spacing: 24) {
+                        VStack(spacing: 16) {
+                            // Header
+                            Text("Unlock Your First Neighborhood")
+                                .font(.custom("Baskerville-Bold", size: 28))
+                                .multilineTextAlignment(.center)
+                            
+                            Text("Discover local landmarks to unlock neighborhood content and start exploring stories from your community")
+                                .font(.custom("Baskerville", size: 18))
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                            
+                            Image(systemName: "camera.viewfinder")
+                                .font(.system(size: 44))
+                                .foregroundColor(.white.opacity(0.8))
+                                .padding(.top, 8)
+                        }
+                        .padding(24)
+                        .background(.ultraThinMaterial)
+                        .cornerRadius(16)
+                        .shadow(radius: 8)
+                    }
+                    .padding()
+                }
+                .frame(minHeight: geometry.size.height)
+            }
+            .ignoresSafeArea(edges: .top)
+        }
+        .ignoresSafeArea(edges: .top)
     }
 }
 

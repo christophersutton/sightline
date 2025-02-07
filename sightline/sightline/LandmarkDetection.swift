@@ -269,134 +269,161 @@ struct LandmarkDetectionView: View {
     @State private var showTransition: Bool = false
     @State private var shouldFlash = false
     @State private var fadeToBlack = false
+    @State private var showingGalleryPicker = false
     
     @Namespace private var scanningNamespace
     
     var body: some View {
-        NavigationView {
-            ZStack {
-                if isCameraMode {
-                    CameraView(
-                        onFrameCaptured: { image in
-                            Task {
-                                await viewModel.detectLandmark(for: image)
-                                if let landmark = viewModel.detectedLandmark {
-                                    await animateLandmarkDetectionFlow(landmark: landmark)
-                                }
-                            }
-                        },
-                        shouldFlash: $shouldFlash
-                    )
-                    .ignoresSafeArea()
-                    
-                    if showTransition {
-                        ScanningTransitionView(namespace: scanningNamespace)
-                            .ignoresSafeArea()
-                    } else {
-                        ScanningAnimation(namespace: scanningNamespace)
-                            .ignoresSafeArea()
+        GeometryReader { geometry in
+          ScrollView {
+            ZStack(alignment:.top) {
+              // Background Image
+              
+              
+              Image("discoverbg")
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .clipped()
+                .ignoresSafeArea()
+              
+              // Status bar blur overlay
+              Rectangle()
+                .fill(.ultraThinMaterial)
+                .frame(height: geometry.safeAreaInsets.top)
+                .ignoresSafeArea()
+              
+              if isCameraMode {
+                // Camera View
+                CameraView(
+                  onFrameCaptured: { image in
+                    Task {
+                      await viewModel.detectLandmark(for: image)
+                      if let landmark = viewModel.detectedLandmark {
+                        await animateLandmarkDetectionFlow(landmark: landmark)
+                      }
                     }
-                    
-                    // Show any errors only, not the detected name.
-                    if viewModel.detectionResult.contains("Error") {
-                        VStack {
-                            Spacer()
-                            Text(viewModel.detectionResult)
-                                .foregroundColor(.white)
-                                .padding()
-                                .background(.black.opacity(0.6))
-                                .cornerRadius(10)
-                                .padding(.bottom, 30)
-                        }
+                  },
+                  shouldFlash: $shouldFlash
+                )
+                .ignoresSafeArea()
+                
+                // Close Button - now respecting safe area
+                VStack {
+                  HStack {
+                    Button(action: {
+                      isCameraMode = false
+                    }) {
+                      Image(systemName: "xmark")
+                        .font(.title2)
+                        .foregroundColor(.white)
+                        .padding(12)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Circle())
                     }
-                    
-                    // Fade-out overlay
-                    Color.black
-                        .opacity(fadeToBlack ? 1.0 : 0.0)
-                        .ignoresSafeArea()
-                    
-                    // Top bar: switch camera <-> gallery
-                    VStack {
-                        Picker("", selection: $isCameraMode) {
-                            Text("Gallery").tag(false)
-                            Text("Camera").tag(true)
-                        }
-                        .pickerStyle(SegmentedPickerStyle())
-                        .padding(.horizontal)
-                        .padding(.top, 8)
-                        Spacer()
-                    }
-                    
-                } else {
-                    // Gallery mode
-                    VStack {
-                        Picker("", selection: $isCameraMode) {
-                            Text("Gallery").tag(false)
-                            Text("Camera").tag(true)
-                        }
-                        .pickerStyle(SegmentedPickerStyle())
-                        .padding()
-                        
-                        if let image = viewModel.selectedImage {
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(height: 300)
-                                .padding()
-                        } else {
-                            Text("Select an image to detect a landmark")
-                                .padding()
-                        }
-                        
-                        ScrollView(.horizontal) {
-                            HStack {
-                                ForEach(viewModel.imageNames, id: \.self) { name in
-                                    Image(name)
-                                        .resizable()
-                                        .frame(width: 100, height: 100)
-                                        .cornerRadius(8)
-                                        .padding(4)
-                                        .onTapGesture {
-                                            if let uiImage = UIImage(named: name) {
-                                                viewModel.selectedImage = uiImage
-                                                Task {
-                                                    await viewModel.detectLandmark(for: uiImage)
-                                                }
-                                            }
-                                        }
-                                }
-                            }
-                        }
-                        
-                        // If a landmark was found in gallery mode, show link
-                        if let landmark = viewModel.detectedLandmark {
-                            NavigationLink(destination: LandmarkDetailView(landmark: landmark)) {
-                                VStack {
-                                    Text(landmark.name)
-                                        .font(.headline)
-                                    Text("Tap for more details")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                                .padding()
-                            }
-                        } else if viewModel.detectionResult.contains("Error") {
-                            Text(viewModel.detectionResult)
-                                .foregroundColor(.red)
-                                .padding()
-                        } else if viewModel.detectionResult == "No landmarks detected." {
-                            Text(viewModel.detectionResult)
-                                .foregroundColor(.white)
-                                .padding()
-                                .background(.black.opacity(0.6))
-                                .cornerRadius(10)
-                        }
-                        
-                        Spacer()
-                    }
+                    .padding(.leading)
+                    Spacer()
+                  }
+                  .padding(.top, geometry.safeAreaInsets.top)
+                  Spacer()
                 }
                 
-                // Navigation link that triggers after our animations
+                // Scanning animations
+                if showTransition {
+                  ScanningTransitionView(namespace: scanningNamespace)
+                    .ignoresSafeArea()
+                } else {
+                  ScanningAnimation(namespace: scanningNamespace)
+                    .ignoresSafeArea()
+                }
+                
+                // Error messages
+                if viewModel.detectionResult.contains("Error") {
+                  VStack {
+                    Spacer()
+                    Text(viewModel.detectionResult)
+                      .foregroundColor(.white)
+                      .padding()
+                      .background(.black.opacity(0.6))
+                      .cornerRadius(10)
+                      .padding(.bottom, 30)
+                  }
+                }
+                
+                // Fade-out overlay
+                Color.black
+                  .opacity(fadeToBlack ? 1.0 : 0.0)
+                  .ignoresSafeArea()
+              } else {
+                // Main content - now properly padded for safe areas
+                ScrollView {
+                  VStack(spacing: 24) {
+                    // Content Container
+                    VStack(spacing: 16) {
+                      Image(systemName: "camera.viewfinder")
+                        .font(.system(size: 64))
+                        .foregroundColor(Color(.systemYellow))
+                      
+                      Text("Discover Your City")
+                        .font(.custom("Baskerville-Bold", size: 32))
+                        .multilineTextAlignment(.center)
+                      
+                      Text("Capture landmarks to unlock neighborhood content and explore local stories")
+                        .font(.custom("Baskerville", size: 20))
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                      
+                      Button(action: {
+                        isCameraMode = true
+                      }) {
+                        HStack(spacing: 12) {
+                          Image(systemName: "camera.fill")
+                            .font(.title3)
+                          Text("Open Camera")
+                            .font(.title3)
+                        }
+                        .foregroundColor(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(Color(.systemYellow))
+                        .cornerRadius(12)
+                      }
+                      .padding(.top, 12)
+                    }
+                    .padding(24)
+                    .background(.ultraThinMaterial)
+                    .cornerRadius(16)
+                    .shadow(radius: 8)
+                  }
+                  .padding()
+                  .padding(.top, geometry.safeAreaInsets.top)
+                }
+                
+#if DEBUG
+                // Debug Gallery Button
+                VStack {
+                  Spacer()
+                  HStack {
+                    Spacer()
+                    Button(action: {
+                      showingGalleryPicker = true
+                    }) {
+                      Image(systemName: "photo.stack")
+                        .font(.title2)
+                        .foregroundColor(.white)
+                        .padding(12)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Circle())
+                    }
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 16)
+                  }
+                }
+#endif
+              }
+            }
+                
+                // Navigation link for landmark detail
                 if let landmark = navigateToLandmark {
                     NavigationLink(
                         destination: LandmarkDetailView(landmark: landmark),
@@ -409,7 +436,45 @@ struct LandmarkDetectionView: View {
                     }
                 }
             }
-            .navigationBarHidden(isCameraMode)
+            .ignoresSafeArea()
+        }
+        .sheet(isPresented: $showingGalleryPicker) {
+            NavigationView {
+                ScrollView {
+                    LazyVGrid(columns: [
+                        GridItem(.flexible()),
+                        GridItem(.flexible()),
+                        GridItem(.flexible())
+                    ], spacing: 8) {
+                        ForEach(viewModel.imageNames, id: \.self) { name in
+                            Image(name)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(height: 120)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .onTapGesture {
+                                    if let uiImage = UIImage(named: name) {
+                                        viewModel.selectedImage = uiImage
+                                        Task {
+                                            await viewModel.detectLandmark(for: uiImage)
+                                        }
+                                        showingGalleryPicker = false
+                                    }
+                                }
+                        }
+                    }
+                    .padding()
+                }
+                .navigationTitle("Debug Gallery")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("Done") {
+                            showingGalleryPicker = false
+                        }
+                    }
+                }
+            }
         }
         .onAppear {
             viewModel.updateAppState(appState)

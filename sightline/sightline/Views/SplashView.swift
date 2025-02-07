@@ -1,5 +1,4 @@
 import SwiftUI
-import FirebaseAuth
 
 struct SplashView: View {
     @State private var progress: CGFloat = 0
@@ -125,7 +124,7 @@ struct BorderAnimation: Shape {
     }
 }
 
-#if DEBUG
+// Preview
 struct SplashView_Previews: PreviewProvider {
     static var previews: some View {
         SplashView {
@@ -133,5 +132,4 @@ struct SplashView_Previews: PreviewProvider {
         }
         .previewDisplayName("Splash Screen")
     }
-}
-#endif 
+} 
