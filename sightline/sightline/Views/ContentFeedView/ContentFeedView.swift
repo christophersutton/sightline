@@ -38,7 +38,7 @@ struct ContentFeedView: View {
                 
                 // Categories Menu
                 FloatingMenu(
-                    items: ContentType.allCases,
+                  items: FilterCategory.allCases,
                     itemTitle: { $0.rawValue.capitalized },
                     selectedId: viewModel.selectedCategory.rawValue,
                     onSelect: { category in

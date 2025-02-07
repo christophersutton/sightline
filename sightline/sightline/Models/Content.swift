@@ -1,18 +1,11 @@
 import FirebaseFirestore
 
-enum ContentType: String, Codable, CaseIterable, Identifiable {
-    case restaurant = "restaurant"
-    case event = "event"
-    case highlight = "highlight"
-    
-    var id: String { rawValue }
-}
-
 struct Content: Identifiable, Codable, Equatable {
     let id: String
-    let placeId: String
+    let placeIds: [String]      // References to one or more Places
+    let eventIds: [String]?     // Optional references to one or more Events
+    let neighborhoodId: String
     let authorId: String
-    let type: ContentType
     
     // Media
     var videoUrl: String
@@ -20,46 +13,57 @@ struct Content: Identifiable, Codable, Equatable {
     
     // Content details
     let caption: String
-    let tags: [String]
+    let tags: [FilterCategory]  // Using the same FilterCategory for consistency
     
     // Metrics
     let likes: Int
     let views: Int
     
-    // Location context
-    let neighborhoodId: String
-    
     // Timestamps
     let createdAt: Timestamp
     let updatedAt: Timestamp
     
-    // Implement Equatable manually since Timestamp might not conform to it
+    // Equatable implementation (ignoring timestamps and simple comparisons)
     static func == (lhs: Content, rhs: Content) -> Bool {
         lhs.id == rhs.id &&
-        lhs.placeId == rhs.placeId &&
+        lhs.placeIds == rhs.placeIds &&
+        lhs.eventIds == rhs.eventIds &&
+        lhs.neighborhoodId == rhs.neighborhoodId &&
         lhs.authorId == rhs.authorId &&
-        lhs.type == rhs.type &&
         lhs.videoUrl == rhs.videoUrl &&
         lhs.thumbnailUrl == rhs.thumbnailUrl &&
         lhs.caption == rhs.caption &&
         lhs.tags == rhs.tags &&
         lhs.likes == rhs.likes &&
-        lhs.views == rhs.views &&
-        lhs.neighborhoodId == rhs.neighborhoodId
+        lhs.views == rhs.views
     }
     
-    init(id: String, placeId: String, authorId: String, type: ContentType, videoUrl: String, thumbnailUrl: String, caption: String, tags: [String], likes: Int, views: Int, neighborhoodId: String, createdAt: Timestamp = Timestamp(), updatedAt: Timestamp = Timestamp()) {
+    init(
+        id: String,
+        placeIds: [String],
+        eventIds: [String]? = nil,
+        neighborhoodId: String,
+        authorId: String,
+        videoUrl: String,
+        thumbnailUrl: String,
+        caption: String,
+        tags: [FilterCategory],
+        likes: Int,
+        views: Int,
+        createdAt: Timestamp = Timestamp(),
+        updatedAt: Timestamp = Timestamp()
+    ) {
         self.id = id
-        self.placeId = placeId
+        self.placeIds = placeIds
+        self.eventIds = eventIds
+        self.neighborhoodId = neighborhoodId
         self.authorId = authorId
-        self.type = type
         self.videoUrl = videoUrl
         self.thumbnailUrl = thumbnailUrl
         self.caption = caption
         self.tags = tags
         self.likes = likes
         self.views = views
-        self.neighborhoodId = neighborhoodId
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

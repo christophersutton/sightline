@@ -56,7 +56,7 @@ struct ContentItemView: View {
                     Button(action: {
                         appState.navigationPath.append(
                             AppState.NavigationDestination.placeDetail(
-                                placeId: content.placeId,
+                                placeId: content.placeIds[0],
                                 initialContentId: content.id
                             )
                         )
@@ -73,7 +73,7 @@ struct ContentItemView: View {
                                 .font(.headline)
                                 .foregroundColor(.white)
                             
-                            NavigationLink(value: NavigationDestination.placeDetail(placeId: content.placeId, initialContentId: content.id)) {
+                            NavigationLink(value: NavigationDestination.placeDetail(placeId: content.placeIds[0], initialContentId: content.id)) {
                                 Text(viewModel.placeName ?? "Loading place...")
                                     .font(.subheadline)
                                     .foregroundColor(.white)
@@ -117,7 +117,7 @@ final class ContentItemViewModel: ObservableObject {
     func loadPlace() async {
         isLoadingPlace = true
         do {
-            let place = try await services.firestore.fetchPlace(id: content.placeId)
+            let place = try await services.firestore.fetchPlace(id: content.placeIds[0])
             await MainActor.run {
                 self.placeName = place.name
             }

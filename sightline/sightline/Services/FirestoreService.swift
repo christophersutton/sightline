@@ -10,13 +10,11 @@ protocol FirestoreServiceProtocol {
     
     // Test Data
     func populateTestData() async throws
-    func unlockTestNeighborhood(for userId: String) async throws
     func deleteAllTestData() async throws
     
     // Content
     func fetchContentForPlace(placeId: String) async throws -> [Content]
-    func fetchContentByCategory(category: String) async throws -> [Content]
-    func fetchContentByCategory(category: ContentType, neighborhoodId: String) async throws -> [Content]
+    func fetchContentByCategory(category: FilterCategory, neighborhoodId: String?) async throws -> [Content]
     
     // Detection
     func saveDetectionResult(landmarkName: String) async throws
@@ -28,6 +26,7 @@ protocol FirestoreServiceProtocol {
 }
 
 class FirestoreService: FirestoreServiceProtocol {
+  
     let db = Firestore.firestore()
     let storage = Storage.storage()
     
@@ -40,7 +39,7 @@ class FirestoreService: FirestoreServiceProtocol {
     }
     
     func addPlace(_ place: Place) async throws {
-        try await db.collection("places")
+        try db.collection("places")
             .document(place.id)
             .setData(from: place)
     }
@@ -64,30 +63,21 @@ class FirestoreService: FirestoreServiceProtocol {
     }
     
     func addContent(_ content: Content) async throws {
-        try await db.collection("content")
+        try db.collection("content")
             .document(content.id)
             .setData(from: content)
     }
-    
-    func fetchContentByCategory(category: String) async throws -> [Content] {
-        let snapshot = try await db.collection("content")
-            .whereField("type", isEqualTo: category)
-            .order(by: "createdAt", descending: true)
-            .limit(to: 5) // Start with a small batch
-            .getDocuments()
-            
-        return snapshot.documents.compactMap { doc in
-            try? doc.data(as: Content.self)
-        }
-    }
-    
-    func fetchContentByCategory(category: ContentType, neighborhoodId: String) async throws -> [Content] {
-        print("🔍 Fetching content for neighborhood: \(neighborhoodId), category: \(category.rawValue)")
+      
+    func fetchContentByCategory(category: FilterCategory, neighborhoodId: String?) async throws -> [Content] {
+        print("🔍 Fetching content for category: \(category.rawValue), neighborhood: \(neighborhoodId ?? "all")")
         
-        let query = db.collection("content")
-            .whereField("neighborhoodId", isEqualTo: neighborhoodId)
-            .whereField("type", isEqualTo: category.rawValue)
+        var query = db.collection("content")
+            .whereField("tags", arrayContains: category.rawValue)
             .order(by: "createdAt", descending: true)
+        
+        if let neighborhoodId = neighborhoodId {
+            query = query.whereField("neighborhoodId", isEqualTo: neighborhoodId)
+        }
         
         let snapshot = try await query.getDocuments()
         
@@ -137,47 +127,7 @@ class FirestoreService: FirestoreServiceProtocol {
             .getDocuments()
         
         let neighborhoods = neighborhoodSnapshot.documents.compactMap { document -> Neighborhood? in
-            do {
-                // Get the raw data
-                let data = document.data()
-                
-                // Manually construct the Neighborhood
-                return Neighborhood(
-                    id: document.documentID,
-                    name: data["name"] as? String ?? "",
-                    bounds: try decodeGeoBounds(from: data["bounds"] as? [String: Any] ?? [:]),
-                    landmarks: try decodeLandmarks(from: data["landmarks"] as? [[String: Any]] ?? [])
-                )
-            } catch {
-                print("⚠️ Failed to decode neighborhood: \(document.documentID)")
-                // Convert document data to a debug-friendly format
-                let data = document.data()
-                var debugData: [String: Any] = [:]
-                
-                // Handle special cases like GeoPoint
-                for (key, value) in data {
-                    if let geoPoint = value as? GeoPoint {
-                        debugData[key] = ["lat": geoPoint.latitude, "lng": geoPoint.longitude]
-                    } else if let array = value as? [[String: Any]] {
-                        // Handle arrays that might contain GeoPoints
-                        debugData[key] = array.map { item in
-                            var newItem = item
-                            for (k, v) in item {
-                                if let gp = v as? GeoPoint {
-                                    newItem[k] = ["lat": gp.latitude, "lng": gp.longitude]
-                                }
-                            }
-                            return newItem
-                        }
-                    } else {
-                        debugData[key] = value
-                    }
-                }
-                
-                print("📄 Document data:", debugData)
-                print("💥 Decode error: \(error)")
-                return nil
-            }
+            try? document.data(as: Neighborhood.self)
         }
         
         print("✅ Found \(neighborhoods.count) unlocked neighborhoods")

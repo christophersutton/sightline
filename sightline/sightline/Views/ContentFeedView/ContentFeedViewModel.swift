@@ -11,7 +11,7 @@ enum NavigationDestination: Hashable {
 class ContentFeedViewModel: ObservableObject {
     @Published var unlockedNeighborhoods: [Neighborhood] = []
     @Published var selectedNeighborhood: Neighborhood?
-    @Published var selectedCategory: ContentType = .restaurant
+    @Published var selectedCategory: FilterCategory = .restaurant
     @Published var contentItems: [Content] = []
     @Published var currentIndex: Int = 0 {
         didSet {
@@ -56,15 +56,19 @@ class ContentFeedViewModel: ObservableObject {
             )
             
             // Fetch places for all content items
-            var placeMap: [String: Place] = [:]
-            for item in content {
-                do {
-                    let place = try await services.firestore.fetchPlace(id: item.placeId)
-                    placeMap[item.placeId] = place
-                } catch {
-                    print("Error loading place \(item.placeId): \(error)")
-                }
-            }
+          var placeMap: [String: Place] = [:]
+          for item in content {
+              for placeId in item.placeIds {  // Iterate through the array of placeIds
+                  do {
+                      let place = try await services.firestore.fetchPlace(id: placeId)
+                      placeMap[placeId] = place
+                  } catch {
+                      print("Error loading place \(placeId): \(error)")
+                  }
+              }
+          }
+
+            self.contentItems = content
             
             self.contentItems = content
             self.places = placeMap
@@ -86,7 +90,7 @@ class ContentFeedViewModel: ObservableObject {
     }
     
     // Called when category changes
-    func categorySelected(_ category: ContentType) {
+    func categorySelected(_ category: FilterCategory) {
         selectedCategory = category
         currentIndex = 0  // Reset index when category changes
         Task {
@@ -108,8 +112,6 @@ class ContentFeedViewModel: ObservableObject {
                 print("❌ No user ID found")
                 return
             }
-            try await services.firestore.unlockTestNeighborhood(for: userId)
-            print("✅ Test neighborhood unlocked")
             
             // Load the unlocked neighborhoods
             await loadUnlockedNeighborhoods()
