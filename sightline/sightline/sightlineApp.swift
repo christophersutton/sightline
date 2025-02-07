@@ -1,5 +1,7 @@
 import SwiftUI
 import FirebaseCore
+// Make sure SplashView is accessible
+import FirebaseAuth
 
 @main
 struct SightlineApp: App {
@@ -36,8 +38,7 @@ struct SightlineApp: App {
                 
                 if showingSplash {
                     SplashView {
-                        // Don't dismiss splash here anymore
-                        // It will be dismissed after preloading
+                        // Empty closure since we're handling dismiss in task
                     }
                     .transition(.opacity)
                 }
