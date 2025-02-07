@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 struct VerticalFeedView<Content: View>: UIViewControllerRepresentable {
-    let content: Content
+    let content: (Int) -> Content
     @Binding var currentIndex: Int
     let itemCount: Int
     let onIndexChanged: (Int) -> Void
@@ -10,8 +10,8 @@ struct VerticalFeedView<Content: View>: UIViewControllerRepresentable {
     init(currentIndex: Binding<Int>, 
          itemCount: Int,
          onIndexChanged: @escaping (Int) -> Void,
-         @ViewBuilder content: () -> Content) {
-        self.content = content()
+         @ViewBuilder content: @escaping (Int) -> Content) {
+        self.content = content
         self._currentIndex = currentIndex
         self.itemCount = itemCount
         self.onIndexChanged = onIndexChanged
@@ -31,9 +31,9 @@ struct VerticalFeedView<Content: View>: UIViewControllerRepresentable {
         controller.delegate = context.coordinator
         controller.view.backgroundColor = .black
         
-        // Disable system gestures that might interfere with our vertical scroll
+        // Disable system gestures that might interfere
         controller.view.gestureRecognizers?.forEach { gesture in
-            gesture.addTarget(context.coordinator, action: #selector(Coordinator.handleGesture(_:)))
+            (gesture as? UIScreenEdgePanGestureRecognizer)?.isEnabled = false
         }
         
         // Set up the initial view controller
@@ -44,11 +44,15 @@ struct VerticalFeedView<Content: View>: UIViewControllerRepresentable {
     }
     
     func updateUIViewController(_ uiViewController: UIPageViewController, context: Context) {
-        // Update if the current index changed externally
+        // Handle external index changes
         if context.coordinator.currentIndex != currentIndex {
             let newVC = context.coordinator.hostingController(for: currentIndex)
-            let direction: UIPageViewController.NavigationDirection = context.coordinator.currentIndex > currentIndex ? .reverse : .forward
-            uiViewController.setViewControllers([newVC], direction: direction, animated: true)
+            let direction: UIPageViewController.NavigationDirection = 
+                context.coordinator.currentIndex > currentIndex ? .reverse : .forward
+            
+            // Use setViewControllers without animation for distant jumps
+            let shouldAnimate = abs(context.coordinator.currentIndex - currentIndex) <= 1
+            uiViewController.setViewControllers([newVC], direction: direction, animated: shouldAnimate)
             context.coordinator.currentIndex = currentIndex
         }
     }
@@ -68,8 +72,16 @@ struct VerticalFeedView<Content: View>: UIViewControllerRepresentable {
                 return existingController
             }
             
+            guard index >= 0 && index < parent.itemCount else {
+                // Return an empty view controller if index is out of bounds
+                let fallbackView = AnyView(Color.black)
+                let fallbackController = UIHostingController(rootView: fallbackView)
+                fallbackController.view.backgroundColor = .clear
+                return fallbackController
+            }
+            
             let view = AnyView(
-                parent.content
+                parent.content(index)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.black)
             )
@@ -77,7 +89,15 @@ struct VerticalFeedView<Content: View>: UIViewControllerRepresentable {
             let hostingController = UIHostingController(rootView: view)
             hostingController.view.backgroundColor = .clear
             hostingControllers[index] = hostingController
+            
+            cleanupDistantControllers(from: index)
+            
             return hostingController
+        }
+        
+        private func cleanupDistantControllers(from currentIndex: Int) {
+            let keepRange = (currentIndex - 2)...(currentIndex + 2)
+            hostingControllers = hostingControllers.filter { keepRange.contains($0.key) }
         }
         
         // MARK: - UIPageViewControllerDataSource
@@ -96,7 +116,10 @@ struct VerticalFeedView<Content: View>: UIViewControllerRepresentable {
         
         // MARK: - UIPageViewControllerDelegate
         
-        func pageViewController(_ pageViewController: UIPageViewController, didFinishAnimating finished: Bool, previousViewControllers: [UIViewController], transitionCompleted completed: Bool) {
+        func pageViewController(_ pageViewController: UIPageViewController, 
+                              didFinishAnimating finished: Bool,
+                              previousViewControllers: [UIViewController],
+                              transitionCompleted completed: Bool) {
             guard completed,
                   let visibleViewController = pageViewController.viewControllers?.first,
                   let index = hostingControllers.first(where: { $0.value == visibleViewController })?.key
@@ -104,16 +127,6 @@ struct VerticalFeedView<Content: View>: UIViewControllerRepresentable {
             
             currentIndex = index
             parent.onIndexChanged(index)
-        }
-        
-        @objc func handleGesture(_ gesture: UIGestureRecognizer) {
-            // Prevent horizontal swipes from triggering system back gesture
-            if let gesture = gesture as? UIPanGestureRecognizer {
-                let translation = gesture.translation(in: gesture.view)
-                if abs(translation.x) > abs(translation.y) {
-                    gesture.state = .failed
-                }
-            }
         }
     }
 }

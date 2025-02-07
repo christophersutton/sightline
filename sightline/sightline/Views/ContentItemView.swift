@@ -21,7 +21,7 @@ struct ContentItemView: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                if let player = feedViewModel.videoManager.currentPlayer {
+                if let player = feedViewModel.videoManager.playerFor(url: content.videoUrl) {
                     VideoPlayer(player: player)
                         .edgesIgnoringSafeArea(.all)
                         .frame(width: geo.size.width, height: geo.size.height + safeAreaInsets.top + safeAreaInsets.bottom)
@@ -34,13 +34,6 @@ struct ContentItemView: View {
                             .foregroundColor(.yellow)
                         Text("Failed to load video")
                             .foregroundColor(.white)
-                        Button("Retry") {
-                            Task {
-                                await feedViewModel.videoManager.prepareForDisplay(url: content.videoUrl)
-                            }
-                        }
-                        .foregroundColor(.blue)
-                        .padding(.top)
                     }
                 } else {
                     Color.black
@@ -92,12 +85,8 @@ struct ContentItemView: View {
         }
         .onAppear {
             Task {
-                await feedViewModel.videoManager.prepareForDisplay(url: content.videoUrl)
                 await viewModel.loadPlace()
             }
-        }
-        .onDisappear {
-            feedViewModel.videoManager.cleanup()
         }
     }
 }

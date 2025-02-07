@@ -10,11 +10,33 @@ struct ContentFeedView: View {
         ZStack(alignment: .top) {
             Color.black.ignoresSafeArea()
             
-            contentFeed
+            if viewModel.isLoading {
+                ProgressView()
+                    .scaleEffect(1.5)
+            } else if viewModel.contentItems.isEmpty {
+                Text("No content available")
+                    .foregroundColor(.white)
+            } else {
+                VerticalFeedView(
+                    currentIndex: $viewModel.currentIndex,
+                    itemCount: viewModel.contentItems.count,
+                    onIndexChanged: { index in
+                        viewModel.currentIndex = index
+                    }
+                ) { index in
+                    if index < viewModel.contentItems.count {
+                        ContentItemView(content: viewModel.contentItems[index])
+                            .environmentObject(viewModel)
+                    } else {
+                        Color.black // Fallback view
+                    }
+                }
+                .ignoresSafeArea()
                 .zIndex(0)
+            }
             
             // Menus (without separate trigger buttons)
-          HStack(alignment: .top) {
+            HStack(alignment: .top) {
                 // Neighborhoods Menu
                 FloatingMenu(
                     items: viewModel.unlockedNeighborhoods,
@@ -63,41 +85,6 @@ struct ContentFeedView: View {
                 viewModel.selectedNeighborhood = neighborhood
                 Task {
                     await viewModel.loadContent()
-                }
-            }
-        }
-    }
-    
-    private var contentFeed: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: 0) {
-                    if viewModel.isLoading {
-                        ProgressView()
-                            .frame(maxWidth: .infinity, maxHeight: UIScreen.main.bounds.height)
-                    } else {
-                        ForEach(viewModel.contentItems.indices, id: \.self) { index in
-                            ContentItemView(content: viewModel.contentItems[index])
-                                .environmentObject(viewModel)
-                                .frame(
-                                    width: UIScreen.main.bounds.width,
-                                    height: UIScreen.main.bounds.height,
-                                    alignment: .center
-                                )
-                                .id(index)
-                                .onAppear {
-                                    viewModel.currentIndex = index
-                                }
-                        }
-                    }
-                }
-            }
-            .scrollTargetBehavior(.paging)
-            .scrollTargetLayout()
-            .ignoresSafeArea()  // Make scroll view edge-to-edge
-            .onChange(of: viewModel.contentItems) { oldValue, newValue in
-                withAnimation {
-                    proxy.scrollTo(0, anchor: .top)
                 }
             }
         }
