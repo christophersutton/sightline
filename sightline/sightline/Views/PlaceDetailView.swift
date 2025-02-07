@@ -94,28 +94,21 @@ struct PlaceDetailView: View {
         }
     }
 
+    var headerView: some View {
+        Text(viewModel.place?.name ?? "Loading...")
+            .font(.title2)
+            .fontWeight(.bold)
+            .frame(maxWidth: .infinity)  // Centers the text
+            .padding(.top, 16)           // More breathing room above
+            .padding(.bottom, 8)         // Consistent padding below
+    }
+
     var body: some View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 16) {
-                    // Header with place title and dismiss button
-                    HStack {
-                        Text(viewModel.place?.name ?? "Loading...")
-                            .font(.title2)
-                            .fontWeight(.bold)
-                        Spacer()
-                        Button(action: {
-                            dismiss()
-                        }) {
-                            Image(systemName: "xmark")
-                                .padding(8)
-                                .background(Color.gray.opacity(0.2))
-                                .clipShape(Circle())
-                        }
-                    }
-                    .padding(.horizontal)
-                    .padding(.top, 8)
-
+                    headerView
+                    
                     if let errorMessage = viewModel.errorMessage {
                         Text(errorMessage)
                             .foregroundColor(.red)
@@ -127,25 +120,24 @@ struct PlaceDetailView: View {
                         .font(.body)
                         .padding(.horizontal)
 
-                    // Map view showing the place location
                     mapView
                     
-                    // Add directions button below map
                     directionsButton
                         .padding(.horizontal)
                         .padding(.top, 8)
                 }
             }
             .frame(maxWidth: geometry.size.width)
-            .background(Color(UIColor.systemBackground))
+            .background(.ultraThinMaterial)  // Translucent material background
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .presentationDetents([
-            .height(400),  // Fixed height for medium state
+            .height(400),
             .large
         ])
         .presentationDragIndicator(.visible)
         .presentationBackgroundInteraction(.enabled)
+        .presentationBackground(.ultraThinMaterial)  // Makes the whole sheet translucent
         .onAppear {
             Task {
                 await viewModel.loadPlaceDetails(placeId: placeId)
