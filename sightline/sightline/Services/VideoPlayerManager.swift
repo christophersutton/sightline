@@ -13,7 +13,13 @@ final class VideoPlayerManager: ObservableObject {
     
     private var playerLooper: AVPlayerLooper?
     private var cancellables = Set<AnyCancellable>()
+    
+    // Dictionary to store preloaded players by URL
     private var preloadedPlayers: [String: AVQueuePlayer] = [:]
+    // Queue to track the order of preloaded videos for caching purposes
+    private var preloadedVideosQueue: [String] = []
+    // Maximum number of videos to cache during the session
+    private let maxCacheSize = 10
     
     private var preloadTasks: [String: Task<Void, Never>] = [:]
     private let preloadLimit = 2 // Number of videos to preload in each direction
@@ -99,6 +105,16 @@ final class VideoPlayerManager: ObservableObject {
                 // Wait until the item is ready before storing the preloaded player
                 try await waitUntilPlayerItemReady(item)
                 preloadedPlayers[url] = player
+                
+                // Add to the caching queue and enforce maximum cache size
+                preloadedVideosQueue.append(url)
+                if preloadedVideosQueue.count > maxCacheSize {
+                    let oldestUrl = preloadedVideosQueue.removeFirst()
+                    preloadedPlayers[oldestUrl]?.pause()
+                    preloadedPlayers[oldestUrl] = nil
+                    print("🗑 Purged oldest video: \(oldestUrl) from cache")
+                }
+                
                 print("✅ Successfully preloaded: \(url)")
             }
         } catch {
@@ -155,6 +171,17 @@ final class VideoPlayerManager: ObservableObject {
         error = nil
         isLoading = false
         cancellables.removeAll()
+    }
+    
+    /// Clears the entire video cache. Call this on app close to release all cached videos.
+    func clearCache() {
+        preloadedPlayers.forEach { (_, player) in
+            player.pause()
+        }
+        preloadedPlayers.removeAll()
+        preloadedVideosQueue.removeAll()
+        preloadTasks.removeAll()
+        print("Cleared video cache")
     }
 }
 

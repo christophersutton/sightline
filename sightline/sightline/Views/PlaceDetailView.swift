@@ -56,9 +56,7 @@ struct PlaceDetailView: View {
     private var header: some View {
         VStack(spacing: 8) {
             HStack {
-                // Remove back button, replaced by navigation toolbar
-                Spacer()
-                
+                Spacer()       
                 if let place = viewModel.place {
                     Text(place.name)
                         .font(.headline)
