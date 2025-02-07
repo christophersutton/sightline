@@ -43,6 +43,17 @@ final class ContentFeedViewModel: ObservableObject {
     }
     
     func loadUnlockedNeighborhoods() async {
+        // First try to load from preloaded data
+        if let data = UserDefaults.standard.data(forKey: "preloadedNeighborhoods"),
+           let neighborhoods = try? JSONDecoder().decode([Neighborhood].self, from: data) {
+            self.unlockedNeighborhoods = neighborhoods
+            if self.selectedNeighborhood == nil {
+                self.selectedNeighborhood = neighborhoods.first
+            }
+            return
+        }
+        
+        // Fall back to loading from Firestore
         guard let userId = services.auth.userId else { return }
         
         do {
@@ -59,6 +70,19 @@ final class ContentFeedViewModel: ObservableObject {
     private func loadAvailableCategories() async {
         guard let neighborhood = selectedNeighborhood else { return }
         
+        // First try to load from preloaded data for the first neighborhood
+        if let firstNeighborhood = unlockedNeighborhoods.first,
+           neighborhood.id == firstNeighborhood.id,  // Compare by ID instead
+           let data = UserDefaults.standard.data(forKey: "preloadedCategories"),
+           let categories = try? JSONDecoder().decode([FilterCategory].self, from: data) {
+            self.availableCategories = categories
+            if !categories.contains(selectedCategory) && !categories.isEmpty {
+                selectedCategory = categories[0]
+            }
+            return
+        }
+        
+        // Fall back to loading from Firestore
         do {
             let categories = try await services.firestore.fetchAvailableCategories(
                 for: neighborhood.id!

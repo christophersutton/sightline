@@ -1,8 +1,10 @@
 import FirebaseFirestore  // For GeoPoint
 
-struct Neighborhood: Codable, Identifiable {
+struct Neighborhood: Codable, Identifiable, Equatable {
     @DocumentID var id: String?
     let name: String
+    let description: String?
+    let imageUrl: String?
     let bounds: GeoBounds
     let landmarks: [Landmark]?
     
@@ -19,5 +21,9 @@ struct Neighborhood: Codable, Identifiable {
         let location: GeoPoint
         let mid: String
         let name: String
+    }
+    
+    static func == (lhs: Neighborhood, rhs: Neighborhood) -> Bool {
+        return lhs.id == rhs.id
     }
 }

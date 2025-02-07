@@ -36,6 +36,8 @@ struct LandmarkInfo: Identifiable {
             // Create a Neighborhood manually from the dictionary
             let id = neighborhoodData["place_id"] as? String ?? ""
             let name = neighborhoodData["name"] as? String ?? ""
+            let description = neighborhoodData["description"] as? String ?? ""
+            let imageUrl = neighborhoodData["image_url"] as? String ?? ""
             let boundsData = neighborhoodData["bounds"] as? [String: Any] ?? [:]
             
             let neData = boundsData["northeast"] as? [String: Any] ?? [:]
@@ -53,8 +55,10 @@ struct LandmarkInfo: Identifiable {
             )
             
             self.neighborhood = Neighborhood(
-                id: id,  // Now optional
+                id: id,
                 name: name,
+                description: description,
+                imageUrl: imageUrl,
                 bounds: bounds,
                 landmarks: nil  // We'll get landmarks when we fetch the full neighborhood
             )
