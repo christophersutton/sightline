@@ -1,117 +1,179 @@
 import SwiftUI
-import AVKit
+import MapKit
+import FirebaseFirestore
+import os
 
 struct PlaceDetailView: View {
     let placeId: String
-    let initialContentId: String
     @StateObject private var viewModel: PlaceDetailViewModel
     @Environment(\.dismiss) private var dismiss
     
-    init(placeId: String, initialContentId: String) {
+    // Add state for sheet height
+    @State private var sheetHeight: CGFloat = UIScreen.main.bounds.height * 0.7
+    @State private var offset: CGFloat = 0
+
+    @State private var region = MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 30.0, longitude: -97.0),
+        span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+    )
+
+    // Add error state
+    @State private var showError = false
+
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Sightline", category: "PlaceDetailView")
+
+    init(placeId: String) {
         self.placeId = placeId
-        self.initialContentId = initialContentId
         _viewModel = StateObject(wrappedValue: PlaceDetailViewModel())
     }
-    
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            
-            VStack(spacing: 0) {
-                // Header
-                header
-                
-                // Content carousel
-                TabView {
-                    ForEach(viewModel.contentItems) { content in
-                        Text("content.title")
-                    }
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-            }
-        }
-        .navigationBarBackButtonHidden(true)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button(action: {
-                    dismiss()
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 17, weight: .semibold))
-                        Text("Back")
-                    }
-                    .foregroundColor(.white)
-                }
-            }
-        }
-        .toolbarBackground(.black.opacity(0.8), for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .task {
-            await viewModel.loadPlaceDetails(placeId: placeId)
-            await viewModel.loadPlaceContent(placeId: placeId, initialContentId: initialContentId)
+
+    func openDirections() {
+        guard let place = viewModel.place else { return }
+        
+        let coordinates = "\(place.coordinates.latitude),\(place.coordinates.longitude)"
+        let name = place.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let url = URL(string: "http://maps.apple.com/?daddr=\(coordinates)&name=\(name)")
+        
+        if let url = url, UIApplication.shared.canOpenURL(url) {
+            UIApplication.shared.open(url)
+        } else {
+            viewModel.errorMessage = "Unable to open Maps"
         }
     }
     
-    private var header: some View {
-        VStack(spacing: 8) {
+    var directionsButton: some View {
+        Button(action: openDirections) {
             HStack {
-                Spacer()       
-                if let place = viewModel.place {
-                    Text(place.name)
-                        .font(.headline)
-                        .foregroundColor(.white)
-                } else {
-                    Text("Loading...")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                }
-                
-                Spacer()
+                Image(systemName: "map.fill")
+                Text("Get Directions")
             }
-            .padding()
-            
+            .foregroundColor(.white)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 24)
+            .background(Color.blue)
+            .cornerRadius(10)
+        }
+        .disabled(viewModel.place == nil)
+        .opacity(viewModel.place == nil ? 0.6 : 1.0)
+    }
+
+    var mapView: some View {
+        Group {
             if let place = viewModel.place {
-                Text(place.address)
-                    .font(.subheadline)
-                    .foregroundColor(.white.opacity(0.8))
+                Map(coordinateRegion: $region, annotationItems: [place]) { place in
+                    MapMarker(
+                        coordinate: CLLocationCoordinate2D(
+                            latitude: place.coordinates.latitude,
+                            longitude: place.coordinates.longitude
+                        ),
+                        tint: .red
+                    )
+                }
+                .onAppear {
+                    // More defensive region initialization
+                    let coordinate = CLLocationCoordinate2D(
+                        latitude: place.coordinates.latitude,
+                        longitude: place.coordinates.longitude
+                    )
+                    if CLLocationCoordinate2DIsValid(coordinate) {
+                        region = MKCoordinateRegion(
+                            center: coordinate,
+                            span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+                        )
+                    } else {
+                        logger.warning("Invalid coordinates for place: \(place.id)")
+                    }
+                }
+                .frame(height: 200)
+                .cornerRadius(12)
+                .padding(.horizontal)
+            } else {
+                ProgressView()
+                    .frame(height: 200)
             }
         }
-        .background(.ultraThinMaterial)
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 16) {
+                    // Header with place title and dismiss button
+                    HStack {
+                        Text(viewModel.place?.name ?? "Loading...")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                        Spacer()
+                        Button(action: {
+                            dismiss()
+                        }) {
+                            Image(systemName: "xmark")
+                                .padding(8)
+                                .background(Color.gray.opacity(0.2))
+                                .clipShape(Circle())
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+
+                    if let errorMessage = viewModel.errorMessage {
+                        Text(errorMessage)
+                            .foregroundColor(.red)
+                            .padding(.horizontal)
+                    }
+
+                    // Description area
+                    Text(viewModel.place?.description ?? "No description available.")
+                        .font(.body)
+                        .padding(.horizontal)
+
+                    // Map view showing the place location
+                    mapView
+                    
+                    // Add directions button below map
+                    directionsButton
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+                }
+            }
+            .frame(maxWidth: geometry.size.width)
+            .background(Color(UIColor.systemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .presentationDetents([
+            .height(400),  // Fixed height for medium state
+            .large
+        ])
+        .presentationDragIndicator(.visible)
+        .presentationBackgroundInteraction(.enabled)
+        .onAppear {
+            Task {
+                await viewModel.loadPlaceDetails(placeId: placeId)
+            }
+        }
     }
 }
 
 @MainActor
-class PlaceDetailViewModel: ObservableObject {
-    @Published private(set) var place: Place?
-    @Published private(set) var contentItems: [Content] = []
-    private let services = ServiceContainer.shared
+final class PlaceDetailViewModel: ObservableObject {
+    @Published var place: Place?
+    @Published var errorMessage: String?
     
+    private let services = ServiceContainer.shared
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Sightline", category: "PlaceDetailView")
+
     func loadPlaceDetails(placeId: String) async {
         do {
-            let place = try await services.firestore.fetchPlace(id: placeId)
+            let fetchedPlace = try await services.firestore.fetchPlace(id: placeId)
             await MainActor.run {
-                self.place = place
+                self.place = fetchedPlace
+                self.errorMessage = nil
             }
         } catch {
-            print("Error loading place details: \(error)")
-        }
-    }
-    
-    func loadPlaceContent(placeId: String, initialContentId: String) async {
-        do {
-            let content = try await services.firestore.fetchContentForPlace(placeId: placeId)
-            
+            logger.error("Error loading place details: \(error.localizedDescription)")
             await MainActor.run {
-                // Sort content so that initialContentId appears first
-                self.contentItems = content.sorted { first, second in
-                    if first.id == initialContentId { return true }
-                    if second.id == initialContentId { return false }
-                    return first.createdAt.dateValue() > second.createdAt.dateValue()
-                }
+                self.errorMessage = "Unable to load place details"
             }
-        } catch {
-            print("Error loading place content: \(error)")
         }
     }
 }

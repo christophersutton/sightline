@@ -1,87 +1,100 @@
 import SwiftUI
+import UIKit
 
 struct ContentFeedView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var viewModel = ContentFeedViewModel()
     @State private var showingNeighborhoods = false
     @State private var showingCategories = false
+    @State private var selectedPlaceId: String? = nil
     
     var body: some View {
-        NavigationStack(path: $appState.navigationPath) {
-            ZStack(alignment: .top) {
-                Color.black.ignoresSafeArea()
-                
-                if viewModel.isLoading {
-                    ProgressView()
-                        .scaleEffect(1.5)
-                } else if viewModel.contentItems.isEmpty {
-                    Text("No content available")
-                        .foregroundColor(.white)
-                } else {
-                    VerticalFeedView(
-                        currentIndex: $viewModel.currentIndex,
-                        itemCount: viewModel.contentItems.count,
-                        onIndexChanged: { index in
-                            viewModel.currentIndex = index
-                        }
-                    ) { index in
-                        if index < viewModel.contentItems.count {
-                            ContentItemView(content: viewModel.contentItems[index])
-                                .environmentObject(viewModel)
-                        } else {
-                            Color.black // Fallback view
-                        }
+        ZStack(alignment: .top) {
+            Color.black.ignoresSafeArea()
+            
+            if viewModel.isLoading {
+                ProgressView()
+                    .scaleEffect(1.5)
+            } else if viewModel.contentItems.isEmpty {
+                Text("No content available")
+                    .foregroundColor(.white)
+            } else {
+                VerticalFeedView(
+                    currentIndex: $viewModel.currentIndex,
+                    itemCount: viewModel.contentItems.count,
+                    onIndexChanged: { index in
+                        viewModel.currentIndex = index
                     }
-                    .ignoresSafeArea()
-                    .zIndex(0)
-                }
-                
-                // Menus (without separate trigger buttons)
-                HStack(alignment: .top) {
-                    // Neighborhoods Menu
-                    FloatingMenu(
-                        items: viewModel.unlockedNeighborhoods,
-                        itemTitle: { $0.name },
-                        selectedId: viewModel.selectedNeighborhood?.id,
-                        onSelect: { neighborhood in
-                            viewModel.selectedNeighborhood = neighborhood
-                            showingNeighborhoods = false
-                            Task {
-                                await viewModel.loadContent()
+                ) { index in
+                    if index < viewModel.contentItems.count {
+                        ContentItemView(content: viewModel.contentItems[index])
+                            .environmentObject(viewModel)
+                            .onTapGesture {
+                                let placeIds = viewModel.contentItems[index].placeIds
+                                if !placeIds.isEmpty {
+                                    selectedPlaceId = placeIds[0]
+                                }
                             }
-                        },
-                        alignment: .leading,
-                        isExpanded: $showingNeighborhoods,
-                        onExploreMore: {
-                            appState.shouldSwitchToDiscover = true
+                    } else {
+                        Color.black // Fallback view
+                    }
+                }
+                .ignoresSafeArea()
+                .zIndex(0)
+            }
+            
+            // Menus (without separate trigger buttons)
+            HStack(alignment: .top) {
+                // Neighborhoods Menu
+                FloatingMenu(
+                    items: viewModel.unlockedNeighborhoods,
+                    itemTitle: { $0.name },
+                    selectedId: viewModel.selectedNeighborhood?.id,
+                    onSelect: { neighborhood in
+                        viewModel.selectedNeighborhood = neighborhood
+                        showingNeighborhoods = false
+                        Task {
+                            await viewModel.loadContent()
                         }
-                    )
-                    
-                    Spacer()
-                    
-                    // Categories Menu
-                    FloatingMenu(
-                      items: viewModel.availableCategories,
-                        itemTitle: { $0.rawValue.capitalized },
-                        selectedId: viewModel.selectedCategory.rawValue,
-                        onSelect: { category in
-                            viewModel.categorySelected(category)
-                            showingCategories = false
-                        },
-                        alignment: .trailing,
-                        isExpanded: $showingCategories
-                    )
-                }
-                .padding(.top, 24)
-                .padding(.horizontal, 16)  // Slightly increased padding for better edge spacing
-                .zIndex(2)
+                    },
+                    alignment: .leading,
+                    isExpanded: $showingNeighborhoods,
+                    onExploreMore: {
+                        appState.shouldSwitchToDiscover = true
+                    }
+                )
+                
+                Spacer()
+                
+                // Categories Menu
+                FloatingMenu(
+                  items: viewModel.availableCategories,
+                    itemTitle: { $0.rawValue.capitalized },
+                    selectedId: viewModel.selectedCategory.rawValue,
+                    onSelect: { category in
+                        viewModel.categorySelected(category)
+                        showingCategories = false
+                    },
+                    alignment: .trailing,
+                    isExpanded: $showingCategories
+                )
             }
-            .navigationDestination(for: AppState.NavigationDestination.self) { destination in
-                switch destination {
-                case .placeDetail(let placeId, let initialContentId):
-                    PlaceDetailView(placeId: placeId, initialContentId: initialContentId)
-                }
+            .padding(.top, 24)
+            .padding(.horizontal, 16)  // Slightly increased padding for better edge spacing
+            .zIndex(2)
+        }
+        .sheet(item: Binding(
+            get: { 
+                selectedPlaceId.map { PlaceDetailPresentation(placeId: $0) } 
+            },
+            set: { presentation in
+                selectedPlaceId = presentation?.placeId
             }
+        )) { presentation in
+            PlaceDetailView(placeId: presentation.placeId)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackgroundInteraction(.enabled)
         }
         .task {
             await viewModel.loadUnlockedNeighborhoods()
@@ -112,3 +125,10 @@ struct CategoryPill: View {
             .cornerRadius(20)
     }
 }
+
+struct PlaceDetailPresentation: Identifiable {
+    let id = UUID()
+    let placeId: String
+}
+
+

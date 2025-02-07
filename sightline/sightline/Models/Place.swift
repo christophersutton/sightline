@@ -4,7 +4,7 @@ struct Place: Identifiable, Codable {
     let id: String
     let name: String
     let primaryCategory: FilterCategory           // e.g., "restaurant", "bar"
-    let tags: [FilterCategory]            // Controlled tags for searching and filtering
+    let tags: [FilterCategory]                      // Controlled tags for searching and filtering
     
     // Other properties...
     let rating: Double
@@ -12,6 +12,7 @@ struct Place: Identifiable, Codable {
     let coordinates: GeoPoint
     let neighborhoodId: String
     let address: String
+    let description: String?                        // New property for place description
     let thumbnailUrl: String?
     let details: [String: String]
     let createdAt: Timestamp
@@ -27,6 +28,7 @@ struct Place: Identifiable, Codable {
         coordinates: GeoPoint,
         neighborhoodId: String,
         address: String,
+        description: String? = nil,                // Default value nil
         thumbnailUrl: String?,
         details: [String: String],
         createdAt: Timestamp = Timestamp(),
@@ -41,9 +43,10 @@ struct Place: Identifiable, Codable {
         self.coordinates = coordinates
         self.neighborhoodId = neighborhoodId
         self.address = address
+        self.description = description
         self.thumbnailUrl = thumbnailUrl
         self.details = details
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
-} 
+}
