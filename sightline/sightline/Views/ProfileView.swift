@@ -124,7 +124,22 @@ struct AuthView: View {
                         .background(.ultraThinMaterial)
                         .cornerRadius(16)
                         .shadow(radius: 8)
-                    }
+                      
+                      
+                          Button(action: {
+                              Task {
+                                  await viewModel.resetAccount()
+                              }
+                          }) {
+                              Text("Reset Account")
+                                  .frame(maxWidth: .infinity)
+                                  .padding()
+                                  .background(Color.red.opacity(0.9))
+                                  .foregroundColor(.white)
+                                  .cornerRadius(10)
+                          }
+                      }
+                    
                     .padding()
                 }
                 .frame(minHeight: geometry.size.height)
@@ -197,7 +212,10 @@ struct UserProfileView: View {
                                     .cornerRadius(10)
                             }
                             
-                            // Add more actions here if needed
+                            
+                            
+                           
+                            
                         }
                         .padding(24)
                         .background(.ultraThinMaterial)
@@ -318,6 +336,28 @@ class ProfileViewModel: ObservableObject {
         }
         
         isProcessing = false
+    }
+    
+    func resetAccount() async {
+        do {
+            // Sign out current user
+            try await auth.signOut()
+            
+            // Clear any cached data
+            UserDefaults.standard.removePersistentDomain(forName: Bundle.main.bundleIdentifier!)
+            
+            // Clear any other app state/cache as needed
+            // TODO: Add other cache clearing here if needed
+            
+            // Reset view model state
+            isAnonymous = true
+            userEmail = nil
+            errorMessage = nil
+            
+            // Firebase will auto-create new anonymous user due to app initialization
+        } catch {
+            errorMessage = "Failed to reset account"
+        }
     }
 }
 
