@@ -45,35 +45,18 @@ final class ContentFeedViewModel: ObservableObject {
     }
     
     func loadUnlockedNeighborhoods() async {
-        // Update the loading state tracking
         DispatchQueue.main.async {
             self.isLoading = true
             self.hasLoadedNeighborhoods = false
         }
         
-        // First try to load from preloaded data
-        if let data = UserDefaults.standard.data(forKey: "preloadedNeighborhoods"),
-           let neighborhoods = try? JSONDecoder().decode([Neighborhood].self, from: data) {
-            self.unlockedNeighborhoods = neighborhoods
-            if self.selectedNeighborhood == nil {
-                self.selectedNeighborhood = neighborhoods.first
-            }
-            DispatchQueue.main.async {
-                self.hasLoadedNeighborhoods = true
-                self.isLoading = false
-            }
-            return
-        }
-        
-        // Fall back to loading from Firestore
-        guard let userId = services.auth.userId else { return }
-        
         do {
-            let neighborhoods = try await services.firestore.fetchUnlockedNeighborhoods(for: userId)
+            let neighborhoods = try await services.neighborhood.fetchUnlockedNeighborhoods()
             self.unlockedNeighborhoods = neighborhoods
             if self.selectedNeighborhood == nil {
                 self.selectedNeighborhood = neighborhoods.first
             }
+            
             DispatchQueue.main.async {
                 self.hasLoadedNeighborhoods = true
                 self.isLoading = false
@@ -90,22 +73,9 @@ final class ContentFeedViewModel: ObservableObject {
     private func loadAvailableCategories() async {
         guard let neighborhood = selectedNeighborhood else { return }
         
-        // First try to load from preloaded data for the first neighborhood
-        if let firstNeighborhood = unlockedNeighborhoods.first,
-           neighborhood.id == firstNeighborhood.id,  // Compare by ID instead
-           let data = UserDefaults.standard.data(forKey: "preloadedCategories"),
-           let categories = try? JSONDecoder().decode([FilterCategory].self, from: data) {
-            self.availableCategories = categories
-            if !categories.contains(selectedCategory) && !categories.isEmpty {
-                selectedCategory = categories[0]
-            }
-            return
-        }
-        
-        // Fall back to loading from Firestore
         do {
-            let categories = try await services.firestore.fetchAvailableCategories(
-                for: neighborhood.id!
+            let categories = try await services.neighborhood.fetchAvailableCategories(
+                neighborhoodId: neighborhood.id!
             )
             self.availableCategories = categories
             
