@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct NeighborhoodSelectorView: View {
+    @Binding var selectedNeighborhood: Neighborhood?
     @StateObject private var viewModel: NeighborhoodSelectorViewModel
     @Binding var isExpanded: Bool
     let onExploreMore: () -> Void
@@ -13,10 +14,8 @@ struct NeighborhoodSelectorView: View {
         onExploreMore: @escaping () -> Void,
         onNeighborhoodSelected: @escaping () -> Void
     ) {
-        _viewModel = StateObject(wrappedValue: NeighborhoodSelectorViewModel(
-            neighborhoodService: neighborhoodService,
-            selectedNeighborhood: selectedNeighborhood
-        ))
+        _selectedNeighborhood = selectedNeighborhood
+        _viewModel = StateObject(wrappedValue: NeighborhoodSelectorViewModel(neighborhoodService: neighborhoodService))
         _isExpanded = isExpanded
         self.onExploreMore = onExploreMore
         self.onNeighborhoodSelected = onNeighborhoodSelected
@@ -26,9 +25,9 @@ struct NeighborhoodSelectorView: View {
         FloatingMenu(
             items: viewModel.neighborhoods,
             itemTitle: { $0.name },
-            selectedId: viewModel.selectedNeighborhood?.id,
+            selectedId: selectedNeighborhood?.id,
             onSelect: { neighborhood in
-                viewModel.selectedNeighborhood = neighborhood
+                selectedNeighborhood = neighborhood
                 isExpanded = false
                 onNeighborhoodSelected()
             },
@@ -38,6 +37,9 @@ struct NeighborhoodSelectorView: View {
         )
         .task {
             await viewModel.loadNeighborhoods()
+            if selectedNeighborhood == nil, let first = viewModel.neighborhoods.first {
+                selectedNeighborhood = first
+            }
         }
     }
 }
@@ -45,21 +47,16 @@ struct NeighborhoodSelectorView: View {
 @MainActor
 final class NeighborhoodSelectorViewModel: ObservableObject {
     @Published var neighborhoods: [Neighborhood] = []
-    @Binding var selectedNeighborhood: Neighborhood?
     
     private let neighborhoodService: NeighborhoodService
     
-    init(neighborhoodService: NeighborhoodService, selectedNeighborhood: Binding<Neighborhood?>) {
+    init(neighborhoodService: NeighborhoodService) {
         self.neighborhoodService = neighborhoodService
-        _selectedNeighborhood = selectedNeighborhood
     }
     
     func loadNeighborhoods() async {
         do {
             neighborhoods = try await neighborhoodService.fetchUnlockedNeighborhoods()
-            if selectedNeighborhood == nil {
-                selectedNeighborhood = neighborhoods.first
-            }
         } catch {
             print("Error loading neighborhoods: \(error)")
         }
