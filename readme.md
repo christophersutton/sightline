@@ -1,3 +1,78 @@
+# Sightline: Discover Your City's Stories
+
+Sightline is a mobile application that helps you explore your city in a new way. By identifying landmarks through your camera, you can unlock content and stories about the places around you.
+
+## Table of Contents
+
+- [Features](#features)
+- [Project Structure](#project-structure)
+- [Firebase Integration](#firebase-integration)
+    - [Cloud Functions](#cloud-functions)
+    - [Firestore](#firestore)
+    - [Firebase Storage](#firebase-storage)
+    - [Authentication](#authentication)
+- [iOS Application (SwiftUI)](#ios-application-swiftui)
+    - [Models](#models)
+    - [Services](#services)
+    - [State Management](#state-management)
+    - [Views](#views)
+    - [Landmark Detection](#landmark-detection-ios)
+    - [Video Playback](#video-playback)
+- [Development Setup](#development-setup)
+    - [Prerequisites](#prerequisites)
+    - [Installation](#installation)
+    - [Configuration](#configuration)
+- [Testing](#testing)
+- [Contributing](#contributing)
+- [License](#license) (This section is added, assuming a license will be added)
+- [Code Overview (Repomix)](#code-overview-repomix)
+
+## Features
+
+-   **Landmark Detection:** Use your camera to identify landmarks and unlock content related to them.
+-   **Content Feed:** Browse a curated feed of videos and information about places and events in your unlocked neighborhoods.
+-   **Neighborhood-Based Content:** Content is organized by neighborhoods, which are unlocked by discovering landmarks within them.
+-   **Category Filtering:** Filter content by categories such as restaurants, events, music, art, and more.
+-   **Place Details:** View detailed information about places, including descriptions, addresses, and user-generated content.
+-   **User Profiles:** Create an account to save places and manage your content (future feature).
+-   **Anonymous Authentication:**  Start exploring immediately with anonymous sign-in; create an account later to save progress.
+-   **Video Caching & Preloading:** Optimized video playback with caching and preloading of content.
+
+## Project Structure
+
+The repository is organized into two main parts:
+
+-   **`firebase/`**: Contains the backend logic and configuration for Firebase, including Cloud Functions, Firestore rules, and storage rules.
+-   **`sightline/`**: Contains the Xcode project for the iOS application.
+
+├── firebase/ # Firebase backend
+│ ├── functions/ # Cloud Functions
+│ │ ├── .eslintrc.json
+│ │ ├── .gitignore
+│ │ ├── index.js # Main Cloud Functions code
+│ │ └── package.json
+│ ├── firebase.json # Firebase configuration
+│ ├── firestore.indexes.json # Firestore indexes
+│ ├── firestore.rules # Firestore security rules
+│ └── storage.rules # Firebase Storage security rules
+├── sightline/ # iOS application (Xcode project)
+│ ├── sightline/ # Main application code
+│ │ ├── Assets.xcassets/ # Asset catalog
+│ │ ├── Models/ # Data models
+│ │ ├── Services/ # Services for interacting with Firebase and other APIs
+│ │ ├── State/ # Application state management
+│ │ ├── Views/ # UI components and views
+│ │ ├── sightline.xcdatamodeld/ # Core Data model (empty, not actively used)
+│ │ ├── DebugGalleryView.swift # Debug view for testing landmark detection
+│ │ ├── LandmarkDetection.swift # Landmark detection logic
+│ │ └── sightlineApp.swift # Main application entry point
+│ ├── sightline.xcodeproj/ # Xcode project file
+│ └── sightlineTests/ # Unit tests
+│ └── sightlineUITests/ # UI Tests
+├── .gitignore # Files and folders to ignore in Git
+├── .markdownlint.json # Markdown linting configuration
+├── .repomixignore # Files to ignore for Repomix (currently empty)
+└── repomix.config.json # Repomix configuration
 
 ## Firebase Integration
 
