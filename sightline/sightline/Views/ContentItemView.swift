@@ -10,6 +10,9 @@ struct ContentItemView: View {
     @StateObject private var viewModel: ContentItemViewModel
     @Environment(\.safeAreaInsets) private var safeAreaInsets
     
+    // Add state for showing the sheet
+    @State private var showingPlaceDetail = false
+    
     init(content: Content) {
         self.content = content
         _viewModel = StateObject(wrappedValue: ContentItemViewModel(
@@ -54,7 +57,10 @@ struct ContentItemView: View {
                                     .foregroundColor(.white)
                                     .multilineTextAlignment(.leading)
                                 
-                                NavigationLink(value: AppState.NavigationDestination.placeDetail(placeId: content.placeIds[0], initialContentId: content.id)) {
+                                // Replace NavigationLink with Button
+                                Button {
+                                    showingPlaceDetail = true
+                                } label: {
                                     Text(viewModel.placeName ?? "Loading place...")
                                         .font(.subheadline)
                                         .foregroundColor(.white)
@@ -79,6 +85,12 @@ struct ContentItemView: View {
                     )
                 }
             }
+        }
+        // Add sheet presentation
+        .sheet(isPresented: $showingPlaceDetail) {
+            PlaceDetailView(placeId: content.placeIds[0])
+                .presentationDetents([.fraction(0.75), .large])  // Show 75% of screen by default
+                .presentationDragIndicator(.visible)
         }
         .onAppear {
             Task {

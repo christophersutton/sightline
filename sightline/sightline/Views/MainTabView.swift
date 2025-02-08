@@ -8,7 +8,7 @@ struct MainTabView: View {
     private let services = ServiceContainer.shared
     
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $appState.navigationPath) {
             TabView(selection: $selectedTab) {
                 // Landmark Detection Tab
                 LandmarkDetectionView()
@@ -83,6 +83,13 @@ struct MainTabView: View {
                         selectedTab = 2
                     }
                     appState.shouldSwitchToProfile = false
+                }
+            }
+            // Add this navigationDestination modifier
+            .navigationDestination(for: AppState.NavigationDestination.self) { destination in
+                switch destination {
+                case .placeDetail(let placeId, let initialContentId):
+                    PlaceDetailView(placeId: placeId)
                 }
             }
         }
