@@ -79,8 +79,7 @@ struct NeighborhoodUnlockedView: View {
                 .padding(.bottom, 40)
             }
             .frame(maxWidth: .infinity, minHeight: UIScreen.main.bounds.height)
-            .background(
-              .ultraThinMaterial)
+            .background(.ultraThinMaterial)
                     .ignoresSafeArea()
             
         

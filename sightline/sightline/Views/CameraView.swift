@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import CoreHaptics
 
 class CameraController: NSObject, ObservableObject {
     @Published var isAuthorized = false
@@ -14,6 +15,8 @@ class CameraController: NSObject, ObservableObject {
     private var lastCaptureTime: Date?
     private var onFrameCaptured: ((UIImage) -> Void)?
     private var onCaptureCompleted: (() -> Void)?
+    
+    private var hasCompletedCapture = false
     
     override init() {
         super.init()
@@ -73,6 +76,7 @@ class CameraController: NSObject, ObservableObject {
         self.captureStartTime = Date()
         self.isCapturing = true
         self.onCaptureCompleted = onCaptureCompleted
+        self.hasCompletedCapture = false
         
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.captureSession?.startRunning()
@@ -80,6 +84,9 @@ class CameraController: NSObject, ObservableObject {
     }
     
     func stopCapturing() {
+        guard !hasCompletedCapture else { return }
+        
+        hasCompletedCapture = true
         self.isCapturing = false
         self.onFrameCaptured = nil
         
@@ -148,80 +155,109 @@ struct CameraPreviewView: UIViewRepresentable {
 
 // Updated CameraView with flash overlay effect added.
 struct CameraView: View {
-  @StateObject private var cameraController = CameraController()
-  @Environment(\.dismiss) private var dismiss
-  var onFrameCaptured: (UIImage) -> Void
-  @Binding var shouldFlash: Bool
+    @StateObject private var cameraController = CameraController()
+    @Environment(\.dismiss) private var dismiss
+    var onFrameCaptured: (UIImage) -> Void
+    @Binding var shouldFlash: Bool
     
-  @State private var flashOverlayOpacity: Double = 0.0
+    @State private var flashOverlayOpacity: Double = 0.0
     @EnvironmentObject var viewModel: LandmarkDetectionViewModel
-
-  
-  var body: some View {
-    GeometryReader { geometry in
-      ZStack { if let session = cameraController.captureSession {
-        CameraPreviewView(session: session)
-        // Scanning overlay while capturing
-        // if cameraController.isCapturing {
-        //   VStack {
-        //     Spacer()
-        //     Text("Scanning for landmarks...")
-        //       .foregroundColor(.white)
-        //       .padding()
-        //       .background(Color.black.opacity(0.7))
-        //       .cornerRadius(10)
-        //     Spacer().frame(height: 160)
-        //   }
-        // }
-        
-        if let error = cameraController.error {
-          Text(error)
-            .foregroundColor(.red)
-            .padding()
-            .background(Color.black.opacity(0.7))
-            .cornerRadius(10)
-        }
-        
-        // Flash overlay effect
-        Color.white
-          .opacity(flashOverlayOpacity)
-          .ignoresSafeArea()
-        
-        
-      }
-      }
-      .ignoresSafeArea(.all, edges: .all)
-      .onChange(of: shouldFlash) { newValue in
-        if newValue {
-          // Trigger flash animation
-          withAnimation(.easeIn(duration: 0.1)) {
-            flashOverlayOpacity = 1.0
-          }
-          withAnimation(.easeOut(duration: 0.3).delay(0.1)) {
-            flashOverlayOpacity = 0.0
-          }
-          // Reset the flag
-          DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            shouldFlash = false
-          }
-        }
-      }
-      .onAppear {
-          viewModel.startCapture()
-        cameraController.startCapturing(
-            onFrameCaptured: { image in
-                onFrameCaptured(image)
-            },
-            onCaptureCompleted: {
-                viewModel.captureCompleted()
+    @State private var hapticEngine: CHHapticEngine?
+    @State private var successMessage: String?
+    @Namespace private var namespace
+    
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                if let session = cameraController.captureSession {
+                    CameraPreviewView(session: session)
+                    
+                    // Status Messages
+                    if let message = successMessage {
+                        Text(message)
+                            .foregroundColor(.white)
+                            .padding()
+                            .background(Color.yellow.opacity(0.7))
+                            .cornerRadius(10)
+                            .transition(.opacity)
+                    } else if let error = cameraController.error {
+                        Text(error)
+                            .foregroundColor(.white)
+                            .padding()
+                            .background(Color.black.opacity(0.7))
+                            .cornerRadius(10)
+                    }
+                    
+                    // Flash overlay effect
+                    Color.white
+                        .opacity(flashOverlayOpacity)
+                        .ignoresSafeArea()
+                    
+                    // Scanning Animation
+                    if cameraController.isCapturing && !shouldFlash && !viewModel.isCapturing {
+                        ScanningAnimation(namespace: namespace)
+                            .ignoresSafeArea()
+                    }
+                }
             }
-        )
-      }
-      .onDisappear {
-        cameraController.stopCapturing()
-      }
+            .ignoresSafeArea(.all, edges: .all)
+            .onChange(of: shouldFlash) { newValue in
+                if newValue {
+                    playHapticSuccess()
+                    withAnimation(.easeIn(duration: 0.1)) {
+                        flashOverlayOpacity = 1.0
+                        successMessage = "Landmark Found!"
+                    }
+                    withAnimation(.easeOut(duration: 0.3).delay(0.1)) {
+                        flashOverlayOpacity = 0.0
+                    }
+                }
+            }
+            .onAppear {
+                prepareHaptics()
+                viewModel.startCapture()
+                cameraController.startCapturing(
+                    onFrameCaptured: { image in
+                        onFrameCaptured(image)
+                    },
+                    onCaptureCompleted: {
+                        viewModel.captureCompleted()
+                    }
+                )
+            }
+            .onDisappear {
+                cameraController.stopCapturing()
+            }
+        }
     }
-  }
+    
+    private func prepareHaptics() {
+        guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
+        
+        do {
+            hapticEngine = try CHHapticEngine()
+            try hapticEngine?.start()
+        } catch {
+            print("Haptics error: \(error)")
+        }
+    }
+    
+    private func playHapticSuccess() {
+        guard CHHapticEngine.capabilitiesForHardware().supportsHaptics,
+              let engine = hapticEngine else { return }
+        
+        do {
+            let intensity = CHHapticEventParameter(parameterID: .hapticIntensity, value: 1.0)
+            let sharpness = CHHapticEventParameter(parameterID: .hapticSharpness, value: 1.0)
+            let event = CHHapticEvent(eventType: .hapticTransient, parameters: [intensity, sharpness], relativeTime: 0)
+            
+            let pattern = try CHHapticPattern(events: [event], parameters: [])
+            let player = try engine.makePlayer(with: pattern)
+            try player.start(atTime: 0)
+        } catch {
+            print("Failed to play haptic: \(error)")
+        }
+    }
 }
 #if DEBUG
 // Mock preview view that replaces camera feed with a color

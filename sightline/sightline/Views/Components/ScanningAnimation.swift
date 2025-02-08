@@ -11,7 +11,7 @@ struct ScanningAnimation: View {
             let scanningBottom = geometry.size.height * 0.9 - halfHeight
             
             ZStack {
-                // Scanning line with matched geometry effect.
+                // Scanning line
                 Rectangle()
                     .fill(
                         LinearGradient(
@@ -29,17 +29,14 @@ struct ScanningAnimation: View {
                     .frame(height: 3)
                     .offset(y: position)
                     .shadow(color: .blue.opacity(0.5), radius: 4)
-                    .matchedGeometryEffect(id: "scannerLine", in: namespace)
                 
-                // Scanner corners with matched geometry effect.
+                // Scanner corners
                 ScannerCorners()
                     .stroke(Color.white.opacity(0.7), lineWidth: 3)
                     .frame(width: geometry.size.width * 0.8,
                            height: geometry.size.height * 0.7)
                     .position(x: geometry.size.width / 2,
-                              y: geometry.size.height / 2)
-                    .matchedGeometryEffect(id: "scannerCorners", in: namespace)
-                    
+                             y: geometry.size.height / 2)
             }
             .onAppear {
                 position = scanningTop

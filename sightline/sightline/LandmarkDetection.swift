@@ -68,16 +68,8 @@ struct LandmarkDetectionView: View {
                             .padding(.leading)
                             Spacer()
                         }
-                        .padding(.top, geometry.safeAreaInsets.top + 40)
+                        .padding(.top, geometry.safeAreaInsets.top)
                         Spacer()
-                        if !viewModel.errorMessage.isEmpty {
-                            Text(viewModel.errorMessage)
-                                .foregroundColor(.white)
-                                .padding()
-                                .background(.black.opacity(0.6))
-                                .cornerRadius(10)
-                                .padding(.bottom, geometry.size.height * 0.3)
-                        }
                     }
 
                     if showTransition {
@@ -212,39 +204,31 @@ struct LandmarkDetectionView: View {
     /// Runs the scanning animations, clears the neighborhood cache, reloads unlocked neighborhoods,
     /// and updates the feed with the new neighborhood before showing the overlay.
     private func animateLandmarkDetectionFlow(landmark: LandmarkInfo) async {
-        withAnimation(.easeIn(duration: 0.1)) {
+        // Trigger flash, haptic and success message
+        withAnimation {
             shouldFlash = true
         }
-        try? await Task.sleep(nanoseconds: 150_000_000)
-        withAnimation(.easeInOut(duration: 1.0)) {
-            showTransition = true
-        }
-        try? await Task.sleep(nanoseconds: 1_000_000_000)
-        withAnimation(.easeIn(duration: 0.5)) {
-            fadeToBlack = true
-        }
-        try? await Task.sleep(nanoseconds: 500_000_000)
         
-        // Clear cached neighborhoods to force reload of the newly unlocked neighborhood
-        await ServiceContainer.shared.neighborhood.clearCache()
+        // Stop camera immediately
+        isCameraMode = false
+        viewModel.captureCompleted()
         
+        // Show unlock overlay immediately with loading state
         if let neighborhood = landmark.neighborhood {
-            await feedViewModel.loadUnlockedNeighborhoods()
-            feedViewModel.selectedNeighborhood = neighborhood
-            await feedViewModel.loadContent()
-            withAnimation {
+            withAnimation(.easeInOut) {
                 previewNeighborhood = neighborhood
                 previewLandmark = landmark
                 showUnlockedOverlay = true
             }
+            
+            // Load data in background after showing UI
+            Task {
+                await ServiceContainer.shared.neighborhood.clearCache()
+                await feedViewModel.loadUnlockedNeighborhoods()
+                feedViewModel.selectedNeighborhood = neighborhood
+                await feedViewModel.loadContent()
+            }
         }
-        
-        isCameraMode = false
-        showTransition = false
-        fadeToBlack = false
-        shouldFlash = false
-        
-        viewModel.captureCompleted()
     }
 }
 
@@ -258,11 +242,13 @@ final class LandmarkDetectionViewModel: ObservableObject {
 
     private var consecutiveFailures = 0
     private let maxFailuresBeforeNotice = 3
+    private var hasDetectedLandmark = false
     
     func startCapture() {
         isCapturing = true
         errorMessage = "Scanning..."
         consecutiveFailures = 0
+        hasDetectedLandmark = false
     }
     
     func captureCompleted() {
@@ -277,12 +263,16 @@ final class LandmarkDetectionViewModel: ObservableObject {
         errorMessage = ""
         detectedLandmark = nil
         consecutiveFailures = 0
+        hasDetectedLandmark = false
     }
 
     func detectLandmark(image: UIImage, using service: LandmarkDetectionService) async {
+        guard !hasDetectedLandmark else { return }
+        
         self.detectedLandmark = nil
         do {
             if let landmarkData = try await service.detectLandmark(in: image) {
+                hasDetectedLandmark = true
                 consecutiveFailures = 0
                 let name = (landmarkData["name"] as? String) ?? "Unknown"
                 let locations = (landmarkData["locations"] as? [[String: Any]]) ?? []
