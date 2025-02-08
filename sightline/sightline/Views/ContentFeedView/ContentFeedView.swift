@@ -49,7 +49,7 @@ struct ContentFeedView: View {
             
             // Menus
             HStack(alignment: .top) {
-                // Replace old neighborhood menu with new component
+                // Neighborhood Selection
                 NeighborhoodSelectorView(
                     neighborhoodService: ServiceContainer.shared.neighborhood,
                     selectedNeighborhood: $viewModel.selectedNeighborhood,
@@ -66,18 +66,25 @@ struct ContentFeedView: View {
                 
                 Spacer()
                 
-                // Categories Menu
-                FloatingMenu(
-                    items: viewModel.availableCategories,
-                    itemTitle: { $0.rawValue.capitalized },
-                    selectedId: viewModel.selectedCategory.rawValue,
-                    onSelect: { category in
-                        viewModel.categorySelected(category)
-                        showingCategories = false
-                    },
-                    alignment: .trailing,
-                    isExpanded: $showingCategories
-                )
+                // Category Selection - now using .id(neighborhoodId) to force refresh
+                if let neighborhoodId = viewModel.selectedNeighborhood?.id {
+                    CategorySelectorView(
+                        neighborhoodService: ServiceContainer.shared.neighborhood,
+                        neighborhoodId: neighborhoodId,
+                        selectedCategory: $viewModel.selectedCategory,
+                        isExpanded: $showingCategories,
+                        onCategorySelected: {
+                            Task {
+                                await viewModel.loadContent()
+                            }
+                        }
+                    )
+                    .id(neighborhoodId)   // <-- Forces reinitialization when neighborhoodId changes
+                } else {
+                    // Fallback in the unlikely case where no neighborhood is selected.
+                    Text("Select a neighborhood")
+                        .foregroundColor(.white)
+                }
             }
             .padding(.top, 24)
             .padding(.horizontal, 16)

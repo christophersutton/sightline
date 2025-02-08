@@ -2,21 +2,22 @@
 
 ## Phase 1: Service Layer & Data Models
 - [ ] Create ContentService
-  - [ ] Move Firestore content fetching logic from ViewModel
+  - [x] Move Firestore content fetching logic from ViewModel (now in ContentService.swift)
   - [ ] Add proper error handling and retry logic
   - [ ] Add caching layer for content items
-- [ ] Create NeighborhoodService  
-  - [ ] Move neighborhood fetching logic from ViewModel
-  - [ ] Add caching for neighborhood data
-- [ ] Create PlaceService
-  - [ ] Move place fetching logic from ViewModel
-  - [ ] Add caching for frequently accessed places
+  - [ ] Remove @MainActor annotation and consider proper background thread handling for Firestore I/O
+- [x] Create NeighborhoodService  
+  - [x] Move neighborhood fetching logic from ViewModel
+  - [x] Add caching for neighborhood data
+- [x] Create PlaceService
+  - [x] Move place fetching logic from ViewModel
+  - [x] Add caching for frequently accessed places
 
 ## Phase 2: View Components (Can be worked on in parallel with Phase 1)
-- [ ] Create NeighborhoodSelectorView
-  - [ ] Extract neighborhood selection UI from ContentFeedView
-  - [ ] Create dedicated NeighborhoodSelectorViewModel
-  - [ ] Add proper loading/error states
+- [x] Create NeighborhoodSelectorView
+  - [x] Extract neighborhood selection UI from ContentFeedView
+  - [x] Create dedicated NeighborhoodSelectorViewModel
+  - [ ] Add proper loading/error states *(basic loading is present but error states could be improved)*
 - [ ] Create CategorySelectorView  
   - [ ] Extract category selection UI from ContentFeedView
   - [ ] Create dedicated CategorySelectorViewModel
@@ -32,7 +33,7 @@
   - [ ] Manage communication between child ViewModels
   - [ ] Handle deep linking
 - [ ] Refactor ContentFeedViewModel
-  - [ ] Remove direct Firestore dependencies
+  - [ ] Remove direct Firestore dependencies (still uses FirestoreService)
   - [ ] Use new service layer
   - [ ] Add proper state management using Combine
   - [ ] Move video management to separate component
