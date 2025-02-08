@@ -112,7 +112,7 @@ struct AuthView: View {
                                 }
                             }
                             .padding()
-                            .background(Color.accentColor)
+                            .background(Color.yellow)
                             .cornerRadius(10)
                             .disabled(viewModel.isProcessing)
                             

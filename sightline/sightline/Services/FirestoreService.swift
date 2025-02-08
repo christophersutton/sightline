@@ -215,4 +215,16 @@ class FirestoreService: FirestoreServiceProtocol {
         
         return snapshot.documents.map { $0.documentID }
     }
+
+    func createAnnotationRequest(imageURL: String, originalFilename: String) async throws {
+        let annotationRequest = [
+            "imageURL": imageURL,
+            "originalFilename": originalFilename,
+            "status": "pending",
+            "createdAt": Timestamp(),
+            "updatedAt": Timestamp()
+        ] as [String : Any]
+        
+        try await db.collection("annotationRequests").addDocument(data: annotationRequest)
+    }
 }

@@ -2,8 +2,13 @@ import SwiftUI
 
 struct DebugGalleryView: View {
     let imageNames: [String]
-    let onImageSelected: (UIImage) -> Void
-
+    @StateObject private var viewModel: LandmarkDetectionViewModel
+    
+    init(imageNames: [String], appState: AppState) {
+        self.imageNames = imageNames
+        self._viewModel = StateObject(wrappedValue: LandmarkDetectionViewModel(appState: appState))
+    }
+    
     private let columns = [
         GridItem(.flexible()),
         GridItem(.flexible()),
@@ -22,8 +27,16 @@ struct DebugGalleryView: View {
                                 .frame(width: 100, height: 100)
                                 .clipped()
                                 .cornerRadius(8)
+                                .overlay(
+                                    viewModel.isLoading ?
+                                    ProgressView()
+                                        .background(Color.black.opacity(0.3))
+                                    : nil
+                                )
                                 .onTapGesture {
-                                    onImageSelected(uiImage)
+                                    Task {
+                                        await viewModel.detectLandmark(for: uiImage)
+                                    }
                                 }
                         } else {
                             RoundedRectangle(cornerRadius: 8)
@@ -38,14 +51,21 @@ struct DebugGalleryView: View {
                 }
                 .padding()
             }
-            .navigationTitle("Debug Gallery")
+            .navigationTitle("Debug Landmark Detection")
             .navigationBarTitleDisplayMode(.inline)
+            
+            if let landmark = viewModel.detectedLandmark {
+                LandmarkDetailView(landmark: landmark)
+            }
         }
     }
 }
 
 struct DebugGalleryView_Previews: PreviewProvider {
     static var previews: some View {
-        DebugGalleryView(imageNames: ["utcapitol1", "utcapitol2", "ladybirdlake1"]) { _ in }
+        DebugGalleryView(
+            imageNames: ["utcapitol1", "utcapitol2", "ladybirdlake1"],
+            appState: AppState()
+        )
     }
 } 
