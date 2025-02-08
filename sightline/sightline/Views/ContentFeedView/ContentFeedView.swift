@@ -106,11 +106,20 @@ struct ContentFeedView: View {
         .task {
             if !viewModel.hasLoadedNeighborhoods {
                 await viewModel.loadUnlockedNeighborhoods()
-                await viewModel.loadContent()
-            } else if viewModel.contentItems.isEmpty {
-                await viewModel.loadContent()
-            } else {
+            }
+            
+            // If we have content but video isn't playing, start it
+            if !viewModel.contentItems.isEmpty {
                 viewModel.videoManager.currentPlayer?.play()
+            }
+        }
+        // Add onAppear to handle tab switches
+        .onAppear {
+            // If we have a selectedNeighborhood but no content, load it
+            if viewModel.selectedNeighborhood != nil && viewModel.contentItems.isEmpty {
+                Task {
+                    await viewModel.loadContent()
+                }
             }
         }
     }

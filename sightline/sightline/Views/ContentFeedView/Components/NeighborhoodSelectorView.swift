@@ -27,9 +27,11 @@ struct NeighborhoodSelectorView: View {
             itemTitle: { $0.name },
             selectedId: selectedNeighborhood?.id,
             onSelect: { neighborhood in
-                selectedNeighborhood = neighborhood
-                isExpanded = false
-                onNeighborhoodSelected()
+                withAnimation {
+                    selectedNeighborhood = neighborhood
+                    isExpanded = false
+                    onNeighborhoodSelected()
+                }
             },
             alignment: .leading,
             isExpanded: $isExpanded,
@@ -39,6 +41,7 @@ struct NeighborhoodSelectorView: View {
             await viewModel.loadNeighborhoods()
             if selectedNeighborhood == nil, let first = viewModel.neighborhoods.first {
                 selectedNeighborhood = first
+                onNeighborhoodSelected()
             }
         }
     }

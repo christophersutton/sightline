@@ -1,3 +1,109 @@
+<Plan>
+1. Create a new NeighborhoodUnlockedView.swift to display the newly unlocked neighborhood, focusing on “Neighborhood Unlocked!” styling rather than landmark details.
+2. Rewrite LandmarkDetectionView.swift:
+   • Remove navigationDestination logic
+   • Add @State var unlockedNeighborhood
+   • In animateLandmarkDetectionFlow, set feedViewModel.selectedNeighborhood, load content, switch to feed, then set unlockedNeighborhood to present the new sheet.
+3. Users can dismiss that sheet, returning to the feed tab with the new neighborhood.
+</Plan>
+
+<file path="sightline/sightline/Views/NeighborhoodUnlockedView.swift" action="create">
+  <change>
+    <description>Create new NeighborhoodUnlockedView for unlocked neighborhood styling</description>
+    <content>
+===
+import SwiftUI
+import MapKit
+
+struct NeighborhoodUnlockedView: View {
+    let neighborhood: Neighborhood
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var region = MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 30.0, longitude: -97.0),
+        span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+    )
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 24) {
+                    // Header
+                    Text("Neighborhood Unlocked!")
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundColor(.yellow)
+                        .padding(.top, 40)
+
+                    Text(neighborhood.name)
+                        .font(.system(size: 24, weight: .semibold))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
+
+                    if let description = neighborhood.description, !description.isEmpty {
+                        Text(description)
+                            .font(.body)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 24)
+                    }
+
+                    // Optional map
+                    if let nbID = neighborhood.id,
+                       let latNortheast = neighborhood.bounds.northeast.lat as Double?,
+                       let lngNortheast = neighborhood.bounds.northeast.lng as Double?,
+                       let latSouthwest = neighborhood.bounds.southwest.lat as Double?,
+                       let lngSouthwest = neighborhood.bounds.southwest.lng as Double? {
+
+                        // Convert bounds to center region
+                        let centerLat = (latNortheast + latSouthwest) / 2
+                        let centerLng = (lngNortheast + lngSouthwest) / 2
+                        let coordinate = CLLocationCoordinate2D(latitude: centerLat, longitude: centerLng)
+                        let latDelta = abs(latNortheast - latSouthwest)
+                        let lngDelta = abs(lngNortheast - lngSouthwest)
+
+                        Map(coordinateRegion: $region)
+                            .frame(height: 220)
+                            .cornerRadius(12)
+                            .onAppear {
+                                region.center = coordinate
+                                region.span = MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lngDelta)
+                            }
+                            .padding(.horizontal)
+                            .accessibilityIdentifier("unlockedMap_\(nbID)")
+                    }
+
+                    // Dismiss Button
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text("Continue")
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(12)
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 40)
+                }
+                .frame(maxWidth: .infinity)
+                .background(Color(UIColor.systemBackground).opacity(0.9))
+            }
+            .navigationBarHidden(true)
+        }
+        .interactiveDismissDisabled(false)
+    }
+}
+===
+    </content>
+  </change>
+</file>
+
+<file path="sightline/sightline/Views/LandmarkDetection.swift" action="rewrite">
+  <change>
+    <description>Rewrite to present a sheet of NeighborhoodUnlockedView, switch to feed with the newly unlocked neighborhood</description>
+    <content>
+===
 import SwiftUI
 import UIKit
 import FirebaseAuth
@@ -20,10 +126,8 @@ struct LandmarkDetectionView: View {
     @State private var fadeToBlack = false
     @State private var showingGalleryPicker = false
 
-    // Add overlay states
-    @State private var showUnlockedOverlay = false
-    @State private var previewNeighborhood: Neighborhood? = nil
-    @State private var previewLandmark: LandmarkInfo? = nil
+    // Instead of navigating to LandmarkDetailView, we'll show a sheet for the unlocked neighborhood
+    @State private var unlockedNeighborhood: Neighborhood? = nil
 
     @Namespace private var scanningNamespace
 
@@ -154,30 +258,33 @@ struct LandmarkDetectionView: View {
                     }
                 }
 
-                // Overlay for success message
-                if showUnlockedOverlay,
-                   let nb = previewNeighborhood,
-                   let lm = previewLandmark {
-                    Color.black.opacity(0.5)
-                        .edgesIgnoringSafeArea(.all)
-                        .transition(.opacity)
-
-                    NeighborhoodUnlockedView(
-                        neighborhood: nb,
-                        landmark: lm
-                    )
-                    .transition(.move(edge: .bottom))
-                    .onTapGesture {
-                        withAnimation(.easeOut(duration: 0.3)) {
-                            showUnlockedOverlay = false
-                            resetOverlayState()
-                        } completion: {
-                            appState.shouldSwitchToFeed = true
+                #if DEBUG
+                // Debug Gallery button
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button {
+                            showingGalleryPicker = true
+                        } label: {
+                            Image(systemName: "photo.stack")
+                                .font(.title2)
+                                .foregroundColor(.white)
+                                .padding(12)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Circle())
                         }
+                        .padding(.trailing, 16)
+                        .padding(.bottom, 160)
                     }
                 }
+                #endif
             }
             .ignoresSafeArea(.container, edges: [.top])
+            // Instead of navigationDestination, we present a sheet for newly unlocked neighborhood
+            .sheet(item: $unlockedNeighborhood) { neighborhood in
+                NeighborhoodUnlockedView(neighborhood: neighborhood)
+            }
             // Debug gallery
             .sheet(isPresented: $showingGalleryPicker) {
                 NavigationView {
@@ -218,16 +325,7 @@ struct LandmarkDetectionView: View {
                     }
                 }
             }
-            .onDisappear {
-                resetOverlayState()
-            }
         }
-    }
-
-    private func resetOverlayState() {
-        showUnlockedOverlay = false
-        previewNeighborhood = nil
-        previewLandmark = nil
     }
 
     /// Runs the fancy scanning animations, then transitions, sets feed to new neighborhood,
@@ -252,18 +350,13 @@ struct LandmarkDetectionView: View {
         }
         try? await Task.sleep(nanoseconds: 500_000_000)
 
-        // If we recognized a neighborhood, set feed, load content
-        if let neighborhood = landmark.neighborhood {
-            // First load the content
+        // If we recognized a neighborhood, set it on feedViewModel, switch to feed
+        if let neighborhood = landmark.neighborhood, let nbId = neighborhood.id {
             feedViewModel.selectedNeighborhood = neighborhood
             await feedViewModel.loadContent()
-            
-            // Then show the overlay
-            withAnimation {
-                previewNeighborhood = landmark.neighborhood
-                previewLandmark = landmark
-                showUnlockedOverlay = true
-            }
+            appState.shouldSwitchToFeed = true
+            // Show the sheet
+            unlockedNeighborhood = neighborhood
         }
 
         // Turn off camera mode
@@ -387,3 +480,7 @@ final class LandmarkDetectionViewModel: ObservableObject {
         )
     }
 }
+===
+    </content>
+  </change>
+</file>

@@ -10,7 +10,15 @@ enum NavigationDestination: Hashable {
 @MainActor
 final class ContentFeedViewModel: ObservableObject {
     @Published var unlockedNeighborhoods: [Neighborhood] = []
-    @Published var selectedNeighborhood: Neighborhood?
+    @Published var selectedNeighborhood: Neighborhood? {
+        didSet {
+            if selectedNeighborhood != oldValue {
+                Task {
+                    await loadContent()
+                }
+            }
+        }
+    }
     @Published var selectedCategory: FilterCategory = .restaurant
     @Published var availableCategories: [FilterCategory] = []
     @Published var contentItems: [Content] = []
@@ -52,12 +60,14 @@ final class ContentFeedViewModel: ObservableObject {
         
         do {
             let neighborhoods = try await services.neighborhood.fetchUnlockedNeighborhoods()
-            self.unlockedNeighborhoods = neighborhoods
-            if self.selectedNeighborhood == nil {
-                self.selectedNeighborhood = neighborhoods.first
-            }
             
             DispatchQueue.main.async {
+                self.unlockedNeighborhoods = neighborhoods
+                // Only set selectedNeighborhood if it's nil or not in the list
+                if self.selectedNeighborhood == nil || 
+                   !neighborhoods.contains(where: { $0.id == self.selectedNeighborhood?.id }) {
+                    self.selectedNeighborhood = neighborhoods.first
+                }
                 self.hasLoadedNeighborhoods = true
                 self.isLoading = false
             }
