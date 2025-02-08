@@ -1,3 +1,115 @@
+<Plan>
+1. Wrap the TabView in a NavigationStack in MainTabView.swift, ensuring .navigationDestination in LandmarkDetectionView is honored.
+2. Pass the same ContentFeedViewModel as an EnvironmentObject to LandmarkDetectionView, so we can refresh unlocked neighborhoods immediately after detection.
+3. In LandmarkDetectionView, once a new landmark is detected, force a reload of unlocked neighborhoods & content so the feed is updated without app relaunch.
+4. Then we transition to LandmarkDetailView (or tab feed) as desired.
+</Plan>
+
+<file path="sightline/sightline/Views/MainTabView.swift" action="rewrite">
+  <change>
+    <description>Wrap the TabView in a NavigationStack and provide feedViewModel to LandmarkDetectionView</description>
+    <content>
+===
+import SwiftUI
+import FirebaseAuth
+
+struct MainTabView: View {
+    @StateObject private var appState = AppState()
+    @State private var selectedTab = 0
+    @StateObject private var feedViewModel = ContentFeedViewModel()
+    private let services = ServiceContainer.shared
+    
+    var body: some View {
+        NavigationStack {
+            TabView(selection: $selectedTab) {
+                // Landmark Detection Tab
+                LandmarkDetectionView()
+                    .environmentObject(appState)
+                    .environmentObject(feedViewModel)  // <-- Provide feedViewModel
+                    .tabItem {
+                        Label("Discover", systemImage: "camera.viewfinder")
+                    }
+                    .tag(0)
+                
+                // Content Feed Tab
+                ContentFeedView()
+                    .environmentObject(appState)
+                    .environmentObject(feedViewModel)
+                    .tabItem {
+                        Label("Feed", systemImage: "play.square.stack")
+                    }
+                    .tag(1)
+                
+                // Profile Tab
+                ProfileView()
+                    .environmentObject(appState)
+                    .tabItem {
+                        Label("Profile", systemImage: "person.circle")
+                    }
+                    .tag(2)
+            }
+            .tint(.white)
+            .onAppear {
+                // Customize Tab Bar appearance
+                let appearance = UITabBarAppearance()
+                appearance.configureWithOpaqueBackground()
+                appearance.backgroundColor = UIColor.black
+                
+                appearance.stackedLayoutAppearance.normal.iconColor = .gray
+                appearance.stackedLayoutAppearance.normal.titleTextAttributes = [.foregroundColor: UIColor.gray]
+                
+                appearance.stackedLayoutAppearance.selected.iconColor = .white
+                appearance.stackedLayoutAppearance.selected.titleTextAttributes = [.foregroundColor: UIColor.white]
+                
+                UITabBar.appearance().standardAppearance = appearance
+                if #available(iOS 15.0, *) {
+                    UITabBar.appearance().scrollEdgeAppearance = appearance
+                }
+            }
+            .task {
+                do {
+                    try await services.auth.signInAnonymously()
+                } catch {
+                    print("Failed to sign in: \\(error)")
+                }
+            }
+            // Switch to Feed when requested
+            .onChange(of: appState.shouldSwitchToFeed) { oldValue, newValue in
+                if newValue {
+                    withAnimation {
+                        selectedTab = 1
+                    }
+                    appState.shouldSwitchToFeed = false
+                }
+            }
+            // Pause video if leaving feed
+            .onChange(of: selectedTab) { oldValue, newValue in
+                if oldValue == 1 && newValue != 1 {
+                    feedViewModel.videoManager.currentPlayer?.pause()
+                }
+            }
+            // Switch to Profile when requested
+            .onChange(of: appState.shouldSwitchToProfile) { oldValue, newValue in
+                if newValue {
+                    withAnimation {
+                        selectedTab = 2
+                    }
+                    appState.shouldSwitchToProfile = false
+                }
+            }
+        }
+    }
+}
+===
+    </content>
+  </change>
+</file>
+
+<file path="sightline/sightline/Views/LandmarkDetection.swift" action="rewrite">
+  <change>
+    <description>Inject feedViewModel and force refresh unlocked neighborhoods after detection, then navigate to detail view</description>
+    <content>
+===
 import SwiftUI
 import UIKit
 import FirebaseAuth
@@ -46,14 +158,12 @@ struct LandmarkDetectionView: View {
                         },
                         shouldFlash: $shouldFlash
                     )
-                    .environmentObject(viewModel)
 
-                    // Close Button and Status Message
+                    // Close Button
                     VStack {
                         HStack {
                             Button {
                                 isCameraMode = false
-                                viewModel.reset() // Reset ViewModel state
                             } label: {
                                 Image(systemName: "xmark")
                                     .font(.title2)
@@ -67,16 +177,6 @@ struct LandmarkDetectionView: View {
                         }
                         .padding(.top, geometry.safeAreaInsets.top + 40)
                         Spacer()
-
-                        // Status/Error Message
-                        if !viewModel.errorMessage.isEmpty {
-                            Text(viewModel.errorMessage)
-                                .foregroundColor(.white)
-                                .padding()
-                                .background(.black.opacity(0.6))
-                                .cornerRadius(10)
-                                .padding(.bottom, geometry.size.height * 0.3) // Move up
-                        }
                     }
 
                     // Scanning animations
@@ -88,10 +188,24 @@ struct LandmarkDetectionView: View {
                             .ignoresSafeArea()
                     }
 
+                    // Errors or progress
+                    if viewModel.errorMessage.contains("Error") {
+                        VStack {
+                            Spacer()
+                            Text(viewModel.errorMessage)
+                                .foregroundColor(.white)
+                                .padding()
+                                .background(.black.opacity(0.6))
+                                .cornerRadius(10)
+                                .padding(.bottom, 30)
+                        }
+                    }
+
                     // Fade-out overlay
                     Color.black
                         .opacity(fadeToBlack ? 1.0 : 0.0)
                         .ignoresSafeArea()
+
                 } else {
                     // Normal "Discover" screen
                     ScrollView {
@@ -246,7 +360,8 @@ struct LandmarkDetectionView: View {
         }
         try? await Task.sleep(nanoseconds: 500_000_000)
 
-        // Reload neighborhoods and content
+        // Reload neighborhoods so UI updates immediately
+        feedViewModel.hasLoadedNeighborhoods = false
         await feedViewModel.loadUnlockedNeighborhoods()
         await feedViewModel.loadContent()
 
@@ -260,8 +375,6 @@ struct LandmarkDetectionView: View {
         showTransition = false
         fadeToBlack = false
         shouldFlash = false
-        
-        viewModel.captureCompleted() // Signal capture completion
     }
 }
 
@@ -271,40 +384,13 @@ final class LandmarkDetectionViewModel: ObservableObject {
     @Published var detectedLandmark: LandmarkInfo? = nil
     @Published var errorMessage: String = ""
     @Published var debugImages: [String] = ["utcapitol1", "utcapitol2", "ladybirdlake1"]
-    @Published var isCapturing = false // Track capture state
-
-    private var consecutiveFailures = 0
-    private let maxFailuresBeforeNotice = 3
-    
-    func startCapture() {
-        isCapturing = true
-        errorMessage = "Scanning..."
-        consecutiveFailures = 0
-    }
-    
-    func captureCompleted() {
-        isCapturing = false
-        if detectedLandmark == nil {
-            errorMessage = "None detected, try finding another landmark."
-        }
-    }
-    
-    func reset() {
-        isCapturing = false
-        errorMessage = ""
-        detectedLandmark = nil
-        consecutiveFailures = 0
-    }
 
     func detectLandmark(image: UIImage, using service: LandmarkDetectionService) async {
-        // Don't reset errorMessage here
+        self.errorMessage = ""
         self.detectedLandmark = nil
 
         do {
             if let landmarkData = try await service.detectLandmark(in: image) {
-                // Reset failures counter on success
-                consecutiveFailures = 0
-                
                 // Extract the top-level landmark name
                 let name = (landmarkData["name"] as? String) ?? "Unknown"
                 let locations = (landmarkData["locations"] as? [[String: Any]]) ?? []
@@ -327,21 +413,11 @@ final class LandmarkDetectionViewModel: ObservableObject {
                     neighborhood: neighborhood
                 )
                 self.detectedLandmark = landmarkInfo
-                self.errorMessage = "" // Clear message on success
-                consecutiveFailures = 0 // Reset on success
             } else {
-                consecutiveFailures += 1
-                if consecutiveFailures >= maxFailuresBeforeNotice && isCapturing {
-                    self.errorMessage = "No landmarks detected yet... Keep scanning the area"
-                }
+                self.errorMessage = "No landmarks detected."
             }
         } catch {
-            consecutiveFailures += 1
-            if consecutiveFailures >= maxFailuresBeforeNotice && isCapturing {
-                self.errorMessage = "Having trouble detecting landmarks. Try moving closer or adjusting your angle."
-            } else {
-                self.errorMessage = "Error: \(error.localizedDescription)"
-            }
+            self.errorMessage = "Error detecting landmark: \\(error.localizedDescription)"
         }
     }
 
@@ -374,3 +450,7 @@ final class LandmarkDetectionViewModel: ObservableObject {
         )
     }
 }
+===
+    </content>
+  </change>
+</file>

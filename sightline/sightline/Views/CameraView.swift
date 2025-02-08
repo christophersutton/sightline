@@ -8,11 +8,12 @@ class CameraController: NSObject, ObservableObject {
     
     var captureSession: AVCaptureSession?
     private var videoOutput = AVCaptureVideoDataOutput()
-    private var frameCount = 0
+    private(set) var frameCount = 0
     private let maxFrames = 10
     private var captureStartTime: Date?
     private var lastCaptureTime: Date?
     private var onFrameCaptured: ((UIImage) -> Void)?
+    private var onCaptureCompleted: (() -> Void)?
     
     override init() {
         super.init()
@@ -65,12 +66,13 @@ class CameraController: NSObject, ObservableObject {
         captureSession = session
     }
     
-    func startCapturing(onFrameCaptured: @escaping (UIImage) -> Void) {
+    func startCapturing(onFrameCaptured: @escaping (UIImage) -> Void, onCaptureCompleted: @escaping () -> Void) {
         self.onFrameCaptured = onFrameCaptured
         self.frameCount = 0
         self.lastCaptureTime = nil
         self.captureStartTime = Date()
         self.isCapturing = true
+        self.onCaptureCompleted = onCaptureCompleted
         
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.captureSession?.startRunning()
@@ -83,6 +85,9 @@ class CameraController: NSObject, ObservableObject {
         
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.captureSession?.stopRunning()
+            DispatchQueue.main.async {
+                self?.onCaptureCompleted?()
+            }
         }
     }
 }
@@ -147,25 +152,27 @@ struct CameraView: View {
   @Environment(\.dismiss) private var dismiss
   var onFrameCaptured: (UIImage) -> Void
   @Binding var shouldFlash: Bool
-  
+    
   @State private var flashOverlayOpacity: Double = 0.0
+    @EnvironmentObject var viewModel: LandmarkDetectionViewModel
+
   
   var body: some View {
     GeometryReader { geometry in
       ZStack { if let session = cameraController.captureSession {
         CameraPreviewView(session: session)
         // Scanning overlay while capturing
-        if cameraController.isCapturing {
-          VStack {
-            Spacer()
-            Text("Scanning for landmarks...")
-              .foregroundColor(.white)
-              .padding()
-              .background(Color.black.opacity(0.7))
-              .cornerRadius(10)
-            Spacer().frame(height: 160)
-          }
-        }
+        // if cameraController.isCapturing {
+        //   VStack {
+        //     Spacer()
+        //     Text("Scanning for landmarks...")
+        //       .foregroundColor(.white)
+        //       .padding()
+        //       .background(Color.black.opacity(0.7))
+        //       .cornerRadius(10)
+        //     Spacer().frame(height: 160)
+        //   }
+        // }
         
         if let error = cameraController.error {
           Text(error)
@@ -200,9 +207,15 @@ struct CameraView: View {
         }
       }
       .onAppear {
-        cameraController.startCapturing { image in
-          onFrameCaptured(image)
-        }
+          viewModel.startCapture()
+        cameraController.startCapturing(
+            onFrameCaptured: { image in
+                onFrameCaptured(image)
+            },
+            onCaptureCompleted: {
+                viewModel.captureCompleted()
+            }
+        )
       }
       .onDisappear {
         cameraController.stopCapturing()

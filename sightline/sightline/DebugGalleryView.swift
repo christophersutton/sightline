@@ -2,11 +2,12 @@ import SwiftUI
 
 struct DebugGalleryView: View {
     let imageNames: [String]
-    @StateObject private var viewModel: LandmarkDetectionViewModel
+    private let detectionService = LandmarkDetectionService()
+    @StateObject private var viewModel = LandmarkDetectionViewModel()
+    @Environment(\.dismiss) private var dismiss
     
-    init(imageNames: [String], appState: AppState) {
+    init(imageNames: [String]) {
         self.imageNames = imageNames
-        self._viewModel = StateObject(wrappedValue: LandmarkDetectionViewModel(appState: appState))
     }
     
     private let columns = [
@@ -21,23 +22,30 @@ struct DebugGalleryView: View {
                 LazyVGrid(columns: columns, spacing: 16) {
                     ForEach(imageNames, id: \.self) { imageName in
                         if let uiImage = UIImage(named: imageName) {
-                            Image(uiImage: uiImage)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 100, height: 100)
-                                .clipped()
-                                .cornerRadius(8)
-                                .overlay(
-                                    viewModel.isLoading ?
-                                    ProgressView()
-                                        .background(Color.black.opacity(0.3))
-                                    : nil
-                                )
-                                .onTapGesture {
-                                    Task {
-                                        await viewModel.detectLandmark(for: uiImage)
+                            Button {
+                                Task {
+                                    await viewModel.detectLandmark(image: uiImage, using: detectionService)
+                                    if viewModel.detectedLandmark != nil {
+                                        dismiss()
                                     }
                                 }
+                            } label: {
+                                Image(uiImage: uiImage)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 100, height: 100)
+                                    .clipped()
+                                    .cornerRadius(8)
+                            }
+                            .overlay {
+                                if !viewModel.errorMessage.isEmpty {
+                                    Color.black.opacity(0.3)
+                                    Text(viewModel.errorMessage)
+                                        .font(.caption)
+                                        .foregroundColor(.white)
+                                        .padding(4)
+                                }
+                            }
                         } else {
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(Color.gray)
@@ -51,21 +59,19 @@ struct DebugGalleryView: View {
                 }
                 .padding()
             }
-            .navigationTitle("Debug Landmark Detection")
+            .navigationTitle("Debug Gallery")
             .navigationBarTitleDisplayMode(.inline)
-            
-            if let landmark = viewModel.detectedLandmark {
-                LandmarkDetailView(landmark: landmark)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
             }
         }
     }
 }
 
-struct DebugGalleryView_Previews: PreviewProvider {
-    static var previews: some View {
-        DebugGalleryView(
-            imageNames: ["utcapitol1", "utcapitol2", "ladybirdlake1"],
-            appState: AppState()
-        )
-    }
+#Preview {
+    DebugGalleryView(imageNames: ["utcapitol1", "utcapitol2", "ladybirdlake1"])
 } 

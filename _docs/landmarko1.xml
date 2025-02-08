@@ -1,3 +1,168 @@
+<Plan>
+1. Create **LandmarkDetectionService.swift** for the Cloud Functions logic (annotateImage).
+2. Create **LandmarkInfo.swift** to model the detected landmark.
+3. Create **LandmarkDetailView.swift** to separate that UI from the detection code.
+4. Rewrite **LandmarkDetection.swift** to reference the new service and new files, simplifying the ViewModel flow. Remove unused knowledgeGraph or repeated logic.
+</Plan>
+
+<file path="sightline/sightline/Services/LandmarkDetectionService.swift" action="create">
+  <change>
+    <description>Create a service to handle calling the 'annotateImage' Cloud Function.</description>
+    <content>
+===
+import UIKit
+import FirebaseFunctions
+import FirebaseAuth
+
+/// A service that handles landmark detection by calling the Firebase Cloud Function.
+actor LandmarkDetectionService {
+    private lazy var functions = Functions.functions()
+
+    /// Calls the Firebase Cloud Function to detect a landmark in the given image.
+    /// - Parameter image: The UIImage to analyze.
+    /// - Returns: A dictionary describing the landmark, or `nil` if none found.
+    func detectLandmark(in image: UIImage) async throws -> [String: Any]? {
+        guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+            throw LandmarkDetectionError.invalidImageData
+        }
+        let base64String = imageData.base64EncodedString()
+
+        let requestData: [String: Any] = [
+            "image": ["content": base64String],
+            "features": [
+                ["maxResults": 1, "type": "LANDMARK_DETECTION"]
+            ]
+        ]
+
+        let result = try await functions.httpsCallable("annotateImage").call(requestData)
+        guard let dict = result.data as? [String: Any],
+              let landmarkData = dict["landmark"] as? [String: Any] else {
+            // If there's no "landmark" key, that means no landmark was detected.
+            return nil
+        }
+        return landmarkData
+    }
+}
+
+/// Errors that can occur during landmark detection.
+enum LandmarkDetectionError: Error {
+    case invalidImageData
+    case failedCloudFunction(String)
+}
+===
+    </content>
+  </change>
+</file>
+
+<file path="sightline/sightline/Models/LandmarkInfo.swift" action="create">
+  <change>
+    <description>Model for the detected landmark, including optional neighborhood.</description>
+    <content>
+===
+import Foundation
+import FirebaseFirestore
+
+/// Simple struct to hold essential landmark data from the Vision API & neighborhood fetch.
+struct LandmarkInfo: Identifiable {
+    let id = UUID()
+    let name: String
+    let latitude: Double?
+    let longitude: Double?
+    let neighborhood: Neighborhood?
+
+    init(name: String,
+         latitude: Double? = nil,
+         longitude: Double? = nil,
+         neighborhood: Neighborhood? = nil) {
+        self.name = name
+        self.latitude = latitude
+        self.longitude = longitude
+        self.neighborhood = neighborhood
+    }
+}
+===
+    </content>
+  </change>
+</file>
+
+<file path="sightline/sightline/Views/LandmarkDetailView.swift" action="create">
+  <change>
+    <description>Separate LandmarkDetailView for displaying details about the detected landmark.</description>
+    <content>
+===
+import SwiftUI
+import MapKit
+import os
+
+struct LandmarkDetailView: View {
+    let landmark: LandmarkInfo
+
+    @State private var region = MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 30.0, longitude: -97.0),
+        span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+    )
+
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Sightline", category: "LandmarkDetailView")
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                // Basic text info
+                Text(landmark.name)
+                    .font(.title)
+                    .bold()
+
+                if let lat = landmark.latitude, let lon = landmark.longitude {
+                    Text("Coordinates: \(lat), \(lon)")
+                        .font(.subheadline)
+                } else {
+                    Text("No coordinates available.")
+                        .font(.subheadline)
+                }
+
+                // If there's an associated neighborhood
+                if let nb = landmark.neighborhood {
+                    Text("Neighborhood: \(nb.name)")
+                        .font(.headline)
+                    // Show other details if you like
+                } else {
+                    Text("No neighborhood found for this landmark.")
+                        .font(.headline)
+                }
+
+                Divider()
+
+                // Example map
+                if let lat = landmark.latitude, let lon = landmark.longitude,
+                   CLLocationCoordinate2DIsValid(CLLocationCoordinate2D(latitude: lat, longitude: lon)) {
+                    Map(coordinateRegion: $region, annotationItems: ["Detected Landmark"]) { _ in
+                        MapMarker(coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon), tint: .red)
+                    }
+                    .onAppear {
+                        region = MKCoordinateRegion(
+                            center: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                            span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+                        )
+                    }
+                    .frame(height: 250)
+                    .cornerRadius(12)
+                }
+            }
+            .padding()
+        }
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+===
+    </content>
+  </change>
+</file>
+
+<file path="sightline/sightline/sightline/LandmarkDetection.swift" action="rewrite">
+  <change>
+    <description>Refactor: remove embedded LandmarkDetailView & Info; use the new service. Simplify logic.</description>
+    <content>
+===
 import SwiftUI
 import UIKit
 import FirebaseAuth
@@ -7,8 +172,8 @@ import FirebaseFirestore
 /// referencing the new LandmarkDetectionService and LandmarkInfo model.
 struct LandmarkDetectionView: View {
     @EnvironmentObject var appState: AppState
-    @EnvironmentObject var feedViewModel: ContentFeedViewModel  // <-- Add feedViewModel
 
+    // Because we have an actor for detection, keep a single instance
     private let detectionService = LandmarkDetectionService()
 
     @StateObject private var viewModel: LandmarkDetectionViewModel = LandmarkDetectionViewModel()
@@ -46,14 +211,12 @@ struct LandmarkDetectionView: View {
                         },
                         shouldFlash: $shouldFlash
                     )
-                    .environmentObject(viewModel)
 
-                    // Close Button and Status Message
+                    // Close Button
                     VStack {
                         HStack {
                             Button {
                                 isCameraMode = false
-                                viewModel.reset() // Reset ViewModel state
                             } label: {
                                 Image(systemName: "xmark")
                                     .font(.title2)
@@ -67,16 +230,6 @@ struct LandmarkDetectionView: View {
                         }
                         .padding(.top, geometry.safeAreaInsets.top + 40)
                         Spacer()
-
-                        // Status/Error Message
-                        if !viewModel.errorMessage.isEmpty {
-                            Text(viewModel.errorMessage)
-                                .foregroundColor(.white)
-                                .padding()
-                                .background(.black.opacity(0.6))
-                                .cornerRadius(10)
-                                .padding(.bottom, geometry.size.height * 0.3) // Move up
-                        }
                     }
 
                     // Scanning animations
@@ -88,10 +241,24 @@ struct LandmarkDetectionView: View {
                             .ignoresSafeArea()
                     }
 
+                    // Errors or progress
+                    if viewModel.errorMessage.contains("Error") {
+                        VStack {
+                            Spacer()
+                            Text(viewModel.errorMessage)
+                                .foregroundColor(.white)
+                                .padding()
+                                .background(.black.opacity(0.6))
+                                .cornerRadius(10)
+                                .padding(.bottom, 30)
+                        }
+                    }
+
                     // Fade-out overlay
                     Color.black
                         .opacity(fadeToBlack ? 1.0 : 0.0)
                         .ignoresSafeArea()
+
                 } else {
                     // Normal "Discover" screen
                     ScrollView {
@@ -150,7 +317,7 @@ struct LandmarkDetectionView: View {
                     }
                 }
 
-                #if DEBUG
+#if DEBUG
                 // Debug Gallery button
                 VStack {
                     Spacer()
@@ -170,7 +337,7 @@ struct LandmarkDetectionView: View {
                         .padding(.bottom, 160)
                     }
                 }
-                #endif
+#endif
             }
             .ignoresSafeArea(.container, edges: [.top])
             // LandmarkDetail Navigation
@@ -225,7 +392,7 @@ struct LandmarkDetectionView: View {
         }
     }
 
-    /// Runs the fancy scanning animations, then transitions to feed or detail, updating unlocked neighborhoods
+    /// Runs the fancy scanning animations, then transitions to feed or a detail view as needed.
     private func animateLandmarkDetectionFlow(landmark: LandmarkInfo) async {
         // 1) Flash
         withAnimation(.easeIn(duration: 0.1)) {
@@ -246,11 +413,11 @@ struct LandmarkDetectionView: View {
         }
         try? await Task.sleep(nanoseconds: 500_000_000)
 
-        // Reload neighborhoods and content
-        await feedViewModel.loadUnlockedNeighborhoods()
-        await feedViewModel.loadContent()
+        // 5) Move to feed if desired
+        // If your logic is to show a detail instead, we can do that below
+        // e.g. appState.shouldSwitchToFeed = true
 
-        // 5) Show Landmark Detail
+        // For demonstration, let's navigate to LandmarkDetailView in SwiftUI
         navigateToLandmark = landmark
 
         // Turn off camera mode
@@ -260,8 +427,6 @@ struct LandmarkDetectionView: View {
         showTransition = false
         fadeToBlack = false
         shouldFlash = false
-        
-        viewModel.captureCompleted() // Signal capture completion
     }
 }
 
@@ -271,40 +436,14 @@ final class LandmarkDetectionViewModel: ObservableObject {
     @Published var detectedLandmark: LandmarkInfo? = nil
     @Published var errorMessage: String = ""
     @Published var debugImages: [String] = ["utcapitol1", "utcapitol2", "ladybirdlake1"]
-    @Published var isCapturing = false // Track capture state
 
-    private var consecutiveFailures = 0
-    private let maxFailuresBeforeNotice = 3
-    
-    func startCapture() {
-        isCapturing = true
-        errorMessage = "Scanning..."
-        consecutiveFailures = 0
-    }
-    
-    func captureCompleted() {
-        isCapturing = false
-        if detectedLandmark == nil {
-            errorMessage = "None detected, try finding another landmark."
-        }
-    }
-    
-    func reset() {
-        isCapturing = false
-        errorMessage = ""
-        detectedLandmark = nil
-        consecutiveFailures = 0
-    }
-
+    /// Calls the detection service & sets state accordingly.
     func detectLandmark(image: UIImage, using service: LandmarkDetectionService) async {
-        // Don't reset errorMessage here
+        self.errorMessage = ""
         self.detectedLandmark = nil
 
         do {
             if let landmarkData = try await service.detectLandmark(in: image) {
-                // Reset failures counter on success
-                consecutiveFailures = 0
-                
                 // Extract the top-level landmark name
                 let name = (landmarkData["name"] as? String) ?? "Unknown"
                 let locations = (landmarkData["locations"] as? [[String: Any]]) ?? []
@@ -327,24 +466,15 @@ final class LandmarkDetectionViewModel: ObservableObject {
                     neighborhood: neighborhood
                 )
                 self.detectedLandmark = landmarkInfo
-                self.errorMessage = "" // Clear message on success
-                consecutiveFailures = 0 // Reset on success
             } else {
-                consecutiveFailures += 1
-                if consecutiveFailures >= maxFailuresBeforeNotice && isCapturing {
-                    self.errorMessage = "No landmarks detected yet... Keep scanning the area"
-                }
+                self.errorMessage = "No landmarks detected."
             }
         } catch {
-            consecutiveFailures += 1
-            if consecutiveFailures >= maxFailuresBeforeNotice && isCapturing {
-                self.errorMessage = "Having trouble detecting landmarks. Try moving closer or adjusting your angle."
-            } else {
-                self.errorMessage = "Error: \(error.localizedDescription)"
-            }
+            self.errorMessage = "Error detecting landmark: \(error.localizedDescription)"
         }
     }
 
+    /// If the server returned a 'neighborhood' dictionary, build a minimal Neighborhood object.
     private func buildNeighborhood(from data: [String: Any]?) -> Neighborhood? {
         guard let data = data,
               let placeId = data["place_id"] as? String,
@@ -364,6 +494,7 @@ final class LandmarkDetectionViewModel: ObservableObject {
                 lng: sw["lng"] as? Double ?? 0
             )
         )
+        // We only have minimal fields. The rest are optional or not provided.
         return Neighborhood(
             id: placeId,
             name: nbName,
@@ -374,3 +505,7 @@ final class LandmarkDetectionViewModel: ObservableObject {
         )
     }
 }
+===
+    </content>
+  </change>
+</file>
