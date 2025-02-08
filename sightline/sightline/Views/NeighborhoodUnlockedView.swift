@@ -14,13 +14,13 @@ struct NeighborhoodUnlockedView: View {
     )
 
     var body: some View {
-        ScrollView {
+        
             VStack(spacing: 24) {
                 // Header
                 Text("Neighborhood Unlocked!")
                     .font(.system(size: 28, weight: .bold))
                     .foregroundColor(.yellow)
-                    .padding(.top, 40)
+                    .padding(.top, 80)
 
                 Text(neighborhood.name)
                     .font(.system(size: 24, weight: .semibold))
@@ -62,6 +62,8 @@ struct NeighborhoodUnlockedView: View {
                     }
                 }
 
+                
+
                 // "Continue" Button
                 Button {
                     onContinue()
@@ -76,9 +78,12 @@ struct NeighborhoodUnlockedView: View {
                 .padding(.horizontal, 24)
                 .padding(.bottom, 40)
             }
-            .frame(maxWidth: .infinity)
-            .background(Color(UIColor.systemBackground).opacity(0.9))
-        }
+            .frame(maxWidth: .infinity, minHeight: UIScreen.main.bounds.height)
+            .background(
+              .ultraThinMaterial)
+                    .ignoresSafeArea()
+            
+        
     }
 }
 

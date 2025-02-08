@@ -141,20 +141,20 @@ struct LandmarkDetectionView: View {
                 }
 
                 if showUnlockedOverlay, let nb = previewNeighborhood, let lm = previewLandmark {
-                    Color.black.opacity(0.5)
-                        .edgesIgnoringSafeArea(.all)
-                        .transition(.opacity)
                     NeighborhoodUnlockedView(
                         neighborhood: nb,
-                        landmark: lm
-                    ) {
-                        withAnimation(.easeOut(duration: 0.3)) {
-                            showUnlockedOverlay = false
-                            resetOverlayState()
-                            appState.shouldSwitchToFeed = true
+                        landmark: lm,
+                        onContinue: {
+                            withAnimation(.easeOut(duration: 0.3)) {
+                                showUnlockedOverlay = false
+                                resetOverlayState()
+                                appState.shouldSwitchToFeed = true
+                            }
                         }
-                    }
+                    )
+                    .ignoresSafeArea()
                     .transition(.move(edge: .bottom))
+                    .zIndex(2)
                 }
             }
             .ignoresSafeArea(.container, edges: [.top])
