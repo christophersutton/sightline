@@ -11,15 +11,15 @@ class ServiceContainer {
     
     // Domain Services
     private(set) lazy var content: ContentService = {
-        ContentServiceImpl(firestore: firestore)
+        ContentServiceImpl(firestore: firestore as! FirestoreService)
     }()
     
     private(set) lazy var neighborhood: NeighborhoodService = {
-        NeighborhoodServiceImpl(firestore: firestore, auth: auth)
+        NeighborhoodServiceImpl(firestore: firestore as! FirestoreService, auth: auth as! AuthService)
     }()
     
     private(set) lazy var place: PlaceService = {
-        PlaceServiceImpl(firestore: firestore)
+        PlaceServiceImpl(firestore: firestore as! FirestoreService)
     }()
     
     // Private init for singleton

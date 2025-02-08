@@ -49,22 +49,18 @@ struct ContentFeedView: View {
             
             // Menus
             HStack(alignment: .top) {
-                // Neighborhoods Menu
-                FloatingMenu(
-                    items: viewModel.unlockedNeighborhoods,
-                    itemTitle: { $0.name },
-                    selectedId: viewModel.selectedNeighborhood?.id,
-                    onSelect: { neighborhood in
-                        viewModel.selectedNeighborhood = neighborhood
-                        showingNeighborhoods = false
-                        Task {
-                            await viewModel.loadContent()
-                        }
-                    },
-                    alignment: .leading,
+                // Replace old neighborhood menu with new component
+                NeighborhoodSelectorView(
+                    neighborhoodService: ServiceContainer.shared.neighborhood,
+                    selectedNeighborhood: $viewModel.selectedNeighborhood,
                     isExpanded: $showingNeighborhoods,
                     onExploreMore: {
                         appState.shouldSwitchToDiscover = true
+                    },
+                    onNeighborhoodSelected: {
+                        Task {
+                            await viewModel.loadContent()
+                        }
                     }
                 )
                 
