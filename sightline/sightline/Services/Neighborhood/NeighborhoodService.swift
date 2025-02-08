@@ -6,6 +6,9 @@ protocol NeighborhoodService {
     
     /// Fetches available categories for a neighborhood
     func fetchAvailableCategories(neighborhoodId: String) async throws -> [FilterCategory]
+    
+    /// Clears the cached neighborhoods and categories
+    func clearCache() async
 }
 
 actor NeighborhoodServiceImpl: NeighborhoodService {
@@ -42,10 +45,15 @@ actor NeighborhoodServiceImpl: NeighborhoodService {
         categoriesCache[neighborhoodId] = categories
         return categories
     }
+    
+    func clearCache() async {
+        neighborhoodsCache = nil
+        categoriesCache.removeAll()
+    }
 }
 
 enum ServiceError: Error {
     case notAuthenticated
     case networkError
     case invalidData
-} 
+}

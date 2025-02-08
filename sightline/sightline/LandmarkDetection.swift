@@ -7,7 +7,7 @@ import FirebaseFirestore
 /// referencing the new LandmarkDetectionService and LandmarkInfo model.
 struct LandmarkDetectionView: View {
     @EnvironmentObject var appState: AppState
-    @EnvironmentObject var feedViewModel: ContentFeedViewModel  // <-- Add feedViewModel
+    @EnvironmentObject var feedViewModel: ContentFeedViewModel
 
     private let detectionService = LandmarkDetectionService()
 
@@ -20,7 +20,7 @@ struct LandmarkDetectionView: View {
     @State private var fadeToBlack = false
     @State private var showingGalleryPicker = false
 
-    // Add overlay states
+    // Overlay states
     @State private var showUnlockedOverlay = false
     @State private var previewNeighborhood: Neighborhood? = nil
     @State private var previewLandmark: LandmarkInfo? = nil
@@ -37,7 +37,6 @@ struct LandmarkDetectionView: View {
                     .frame(width: geometry.size.width, height: geometry.size.height + 100)
                     .clipped()
 
-                // If we're in camera mode
                 if isCameraMode {
                     CameraView(
                         onFrameCaptured: { image in
@@ -57,7 +56,7 @@ struct LandmarkDetectionView: View {
                         HStack {
                             Button {
                                 isCameraMode = false
-                                viewModel.reset() // Reset ViewModel state
+                                viewModel.reset()
                             } label: {
                                 Image(systemName: "xmark")
                                     .font(.title2)
@@ -71,19 +70,16 @@ struct LandmarkDetectionView: View {
                         }
                         .padding(.top, geometry.safeAreaInsets.top + 40)
                         Spacer()
-
-                        // Status/Error Message
                         if !viewModel.errorMessage.isEmpty {
                             Text(viewModel.errorMessage)
                                 .foregroundColor(.white)
                                 .padding()
                                 .background(.black.opacity(0.6))
                                 .cornerRadius(10)
-                                .padding(.bottom, geometry.size.height * 0.3) // Move up
+                                .padding(.bottom, geometry.size.height * 0.3)
                         }
                     }
 
-                    // Scanning animations
                     if showTransition {
                         ScanningTransitionView(namespace: scanningNamespace)
                             .ignoresSafeArea()
@@ -92,35 +88,29 @@ struct LandmarkDetectionView: View {
                             .ignoresSafeArea()
                     }
 
-                    // Fade-out overlay
                     Color.black
                         .opacity(fadeToBlack ? 1.0 : 0.0)
                         .ignoresSafeArea()
                 } else {
-                    // Normal "Discover" screen
                     ScrollView {
                         GeometryReader { scrollGeometry in
                             VStack {
                                 Spacer(minLength: 800)
-
                                 VStack(spacing: 16) {
                                     Image(systemName: "camera.viewfinder")
                                         .font(.system(size: 64))
                                         .foregroundColor(Color(.systemYellow))
-
                                     Text("Discover Your City")
                                         .font(.custom("Baskerville-Bold", size: 32))
                                         .multilineTextAlignment(.center)
                                         .frame(maxWidth: .infinity)
                                         .padding(.horizontal, 24)
-
                                     Text("Capture landmarks to unlock neighborhood content and explore local stories")
                                         .font(.custom("Baskerville", size: 20))
                                         .foregroundColor(.white)
                                         .multilineTextAlignment(.center)
                                         .frame(maxWidth: .infinity)
                                         .padding(.horizontal, 24)
-
                                     Button {
                                         isCameraMode = true
                                     } label: {
@@ -143,42 +133,31 @@ struct LandmarkDetectionView: View {
                                 .cornerRadius(16)
                                 .shadow(radius: 8)
                                 .padding()
-
                                 Spacer(minLength: 0)
                             }
-                            .frame(
-                                minWidth: scrollGeometry.size.width,
-                                minHeight: scrollGeometry.size.height
-                            )
+                            .frame(minWidth: scrollGeometry.size.width, minHeight: scrollGeometry.size.height)
                         }
                     }
                 }
 
-                // Overlay for success message
-                if showUnlockedOverlay,
-                   let nb = previewNeighborhood,
-                   let lm = previewLandmark {
+                if showUnlockedOverlay, let nb = previewNeighborhood, let lm = previewLandmark {
                     Color.black.opacity(0.5)
                         .edgesIgnoringSafeArea(.all)
                         .transition(.opacity)
-
                     NeighborhoodUnlockedView(
                         neighborhood: nb,
                         landmark: lm
-                    )
-                    .transition(.move(edge: .bottom))
-                    .onTapGesture {
+                    ) {
                         withAnimation(.easeOut(duration: 0.3)) {
                             showUnlockedOverlay = false
                             resetOverlayState()
-                        } completion: {
                             appState.shouldSwitchToFeed = true
                         }
                     }
+                    .transition(.move(edge: .bottom))
                 }
             }
             .ignoresSafeArea(.container, edges: [.top])
-            // Debug gallery
             .sheet(isPresented: $showingGalleryPicker) {
                 NavigationView {
                     ScrollView {
@@ -230,51 +209,42 @@ struct LandmarkDetectionView: View {
         previewLandmark = nil
     }
 
-    /// Runs the fancy scanning animations, then transitions, sets feed to new neighborhood,
-    /// and presents the unlocked neighborhood sheet.
+    /// Runs the scanning animations, clears the neighborhood cache, reloads unlocked neighborhoods,
+    /// and updates the feed with the new neighborhood before showing the overlay.
     private func animateLandmarkDetectionFlow(landmark: LandmarkInfo) async {
-        // 1) Flash
         withAnimation(.easeIn(duration: 0.1)) {
             shouldFlash = true
         }
-        // 2) Wait a moment
         try? await Task.sleep(nanoseconds: 150_000_000)
-
-        // 3) Scanning transition
         withAnimation(.easeInOut(duration: 1.0)) {
             showTransition = true
         }
         try? await Task.sleep(nanoseconds: 1_000_000_000)
-
-        // 4) Fade to black
         withAnimation(.easeIn(duration: 0.5)) {
             fadeToBlack = true
         }
         try? await Task.sleep(nanoseconds: 500_000_000)
-
-        // If we recognized a neighborhood, set feed, load content
+        
+        // Clear cached neighborhoods to force reload of the newly unlocked neighborhood
+        await ServiceContainer.shared.neighborhood.clearCache()
+        
         if let neighborhood = landmark.neighborhood {
-            // First load the content
+            await feedViewModel.loadUnlockedNeighborhoods()
             feedViewModel.selectedNeighborhood = neighborhood
             await feedViewModel.loadContent()
-            
-            // Then show the overlay
             withAnimation {
-                previewNeighborhood = landmark.neighborhood
+                previewNeighborhood = neighborhood
                 previewLandmark = landmark
                 showUnlockedOverlay = true
             }
         }
-
-        // Turn off camera mode
+        
         isCameraMode = false
-
-        // Reset animations
         showTransition = false
         fadeToBlack = false
         shouldFlash = false
         
-        viewModel.captureCompleted() // Signal capture completion
+        viewModel.captureCompleted()
     }
 }
 
@@ -284,7 +254,7 @@ final class LandmarkDetectionViewModel: ObservableObject {
     @Published var detectedLandmark: LandmarkInfo? = nil
     @Published var errorMessage: String = ""
     @Published var debugImages: [String] = ["utcapitol1", "utcapitol2", "ladybirdlake1"]
-    @Published var isCapturing = false // Track capture state
+    @Published var isCapturing = false
 
     private var consecutiveFailures = 0
     private let maxFailuresBeforeNotice = 3
@@ -310,15 +280,10 @@ final class LandmarkDetectionViewModel: ObservableObject {
     }
 
     func detectLandmark(image: UIImage, using service: LandmarkDetectionService) async {
-        // Don't reset errorMessage here
         self.detectedLandmark = nil
-
         do {
             if let landmarkData = try await service.detectLandmark(in: image) {
-                // Reset failures counter on success
                 consecutiveFailures = 0
-                
-                // Extract the top-level landmark name
                 let name = (landmarkData["name"] as? String) ?? "Unknown"
                 let locations = (landmarkData["locations"] as? [[String: Any]]) ?? []
                 var lat: Double? = nil
@@ -328,11 +293,8 @@ final class LandmarkDetectionViewModel: ObservableObject {
                     lat = latLng["latitude"] as? Double
                     lon = latLng["longitude"] as? Double
                 }
-
-                // Possibly there's a neighborhood dictionary
                 let nbData = landmarkData["neighborhood"] as? [String: Any]
                 let neighborhood = buildNeighborhood(from: nbData)
-
                 let landmarkInfo = LandmarkInfo(
                     name: name,
                     latitude: lat,
@@ -340,8 +302,8 @@ final class LandmarkDetectionViewModel: ObservableObject {
                     neighborhood: neighborhood
                 )
                 self.detectedLandmark = landmarkInfo
-                self.errorMessage = "" // Clear message on success
-                consecutiveFailures = 0 // Reset on success
+                self.errorMessage = ""
+                consecutiveFailures = 0
             } else {
                 consecutiveFailures += 1
                 if consecutiveFailures >= maxFailuresBeforeNotice && isCapturing {

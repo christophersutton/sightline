@@ -17,7 +17,7 @@ async function ensureDir(path: string) {
 
 async function main() {
   // Read the XML file
-  const xmlContent = await file("_docs/landmark3o1.xml").text();
+  const xmlContent = await file("_docs/o15.xml").text();
   
   // Simple regex-based extraction (could be more robust with proper XML parsing)
   const fileMatches = xmlContent.matchAll(/<file path="([^"]+)"[^>]*>[\s\S]*?<content>\s*===\s*([\s\S]*?)\s*===\s*<\/content>/g);
