@@ -9,9 +9,18 @@ struct SplashView: View {
         ZStack {
             Color.black.edgesIgnoringSafeArea(.all)
             
-            // Border animation path
-            BorderAnimation(progress: progress)
-                .stroke(Color.blue, lineWidth: 10)
+            // First border animation path (clockwise from top middle)
+            BorderAnimation(progress: progress, startPosition: .topMiddle, clockwise: true)
+                .stroke(Color.yellow, lineWidth: 10)
+                .edgesIgnoringSafeArea(.all)
+                .mask(
+                    RoundedRectangle(cornerRadius: UIScreen.main.displayCornerRadius)
+                        .edgesIgnoringSafeArea(.all)
+                )
+            
+            // Second border animation path (counter-clockwise from top middle)
+            BorderAnimation(progress: progress, startPosition: .topMiddle, clockwise: false)
+                .stroke(Color.yellow, lineWidth: 10)
                 .edgesIgnoringSafeArea(.all)
                 .mask(
                     RoundedRectangle(cornerRadius: UIScreen.main.displayCornerRadius)
@@ -63,8 +72,15 @@ extension UIScreen {
     }
 }
 
+// Add enum for start position
+enum BorderStartPosition {
+    case topMiddle
+}
+
 struct BorderAnimation: Shape {
     var progress: CGFloat
+    var startPosition: BorderStartPosition
+    var clockwise: Bool
     
     var animatableData: CGFloat {
         get { progress }
@@ -74,53 +90,92 @@ struct BorderAnimation: Shape {
     func path(in rect: CGRect) -> Path {
         let cornerRadius = UIScreen.main.displayCornerRadius
         
-        // Create the full rounded rectangle path
-        let roundedRect = Path { path in
-            path.move(to: CGPoint(x: rect.minX + cornerRadius, y: rect.minY))
+        return Path { path in
+            // Start from top middle
+            path.move(to: CGPoint(x: rect.midX, y: rect.minY))
             
-            // Top edge and top-right corner
-            path.addLine(to: CGPoint(x: rect.maxX - cornerRadius, y: rect.minY))
-            path.addArc(
-                center: CGPoint(x: rect.maxX - cornerRadius, y: rect.minY + cornerRadius),
-                radius: cornerRadius,
-                startAngle: Angle(degrees: -90),
-                endAngle: Angle(degrees: 0),
-                clockwise: false
-            )
-            
-            // Right edge and bottom-right corner
-            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - cornerRadius))
-            path.addArc(
-                center: CGPoint(x: rect.maxX - cornerRadius, y: rect.maxY - cornerRadius),
-                radius: cornerRadius,
-                startAngle: Angle(degrees: 0),
-                endAngle: Angle(degrees: 90),
-                clockwise: false
-            )
-            
-            // Bottom edge and bottom-left corner
-            path.addLine(to: CGPoint(x: rect.minX + cornerRadius, y: rect.maxY))
-            path.addArc(
-                center: CGPoint(x: rect.minX + cornerRadius, y: rect.maxY - cornerRadius),
-                radius: cornerRadius,
-                startAngle: Angle(degrees: 90),
-                endAngle: Angle(degrees: 180),
-                clockwise: false
-            )
-            
-            // Left edge and top-left corner
-            path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + cornerRadius))
-            path.addArc(
-                center: CGPoint(x: rect.minX + cornerRadius, y: rect.minY + cornerRadius),
-                radius: cornerRadius,
-                startAngle: Angle(degrees: 180),
-                endAngle: Angle(degrees: 270),
-                clockwise: false
-            )
-        }
-        
-        // Trim the path based on progress
-        return roundedRect.trimmedPath(from: 0, to: progress)
+            if clockwise {
+                // Top-right section
+                path.addLine(to: CGPoint(x: rect.maxX - cornerRadius, y: rect.minY))
+                path.addArc(
+                    center: CGPoint(x: rect.maxX - cornerRadius, y: rect.minY + cornerRadius),
+                    radius: cornerRadius,
+                    startAngle: Angle(degrees: -90),
+                    endAngle: Angle(degrees: 0),
+                    clockwise: false
+                )
+                
+                // Right edge and remaining corners (clockwise)
+                path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - cornerRadius))
+                path.addArc(
+                    center: CGPoint(x: rect.maxX - cornerRadius, y: rect.maxY - cornerRadius),
+                    radius: cornerRadius,
+                    startAngle: Angle(degrees: 0),
+                    endAngle: Angle(degrees: 90),
+                    clockwise: false
+                )
+                
+                path.addLine(to: CGPoint(x: rect.minX + cornerRadius, y: rect.maxY))
+                path.addArc(
+                    center: CGPoint(x: rect.minX + cornerRadius, y: rect.maxY - cornerRadius),
+                    radius: cornerRadius,
+                    startAngle: Angle(degrees: 90),
+                    endAngle: Angle(degrees: 180),
+                    clockwise: false
+                )
+                
+                path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + cornerRadius))
+                path.addArc(
+                    center: CGPoint(x: rect.minX + cornerRadius, y: rect.minY + cornerRadius),
+                    radius: cornerRadius,
+                    startAngle: Angle(degrees: 180),
+                    endAngle: Angle(degrees: 270),
+                    clockwise: false
+                )
+                
+                path.addLine(to: CGPoint(x: rect.midX, y: rect.minY))
+            } else {
+                // Top-left section (counter-clockwise)
+                path.addLine(to: CGPoint(x: rect.minX + cornerRadius, y: rect.minY))
+                path.addArc(
+                    center: CGPoint(x: rect.minX + cornerRadius, y: rect.minY + cornerRadius),
+                    radius: cornerRadius,
+                    startAngle: Angle(degrees: -90),
+                    endAngle: Angle(degrees: 180),
+                    clockwise: true
+                )
+                
+                // Left edge and remaining corners (counter-clockwise)
+                path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - cornerRadius))
+                path.addArc(
+                    center: CGPoint(x: rect.minX + cornerRadius, y: rect.maxY - cornerRadius),
+                    radius: cornerRadius,
+                    startAngle: Angle(degrees: 180),
+                    endAngle: Angle(degrees: 90),
+                    clockwise: true
+                )
+                
+                path.addLine(to: CGPoint(x: rect.maxX - cornerRadius, y: rect.maxY))
+                path.addArc(
+                    center: CGPoint(x: rect.maxX - cornerRadius, y: rect.maxY - cornerRadius),
+                    radius: cornerRadius,
+                    startAngle: Angle(degrees: 90),
+                    endAngle: Angle(degrees: 0),
+                    clockwise: true
+                )
+                
+                path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + cornerRadius))
+                path.addArc(
+                    center: CGPoint(x: rect.maxX - cornerRadius, y: rect.minY + cornerRadius),
+                    radius: cornerRadius,
+                    startAngle: Angle(degrees: 0),
+                    endAngle: Angle(degrees: -90),
+                    clockwise: true
+                )
+                
+                path.addLine(to: CGPoint(x: rect.midX, y: rect.minY))
+            }
+        }.trimmedPath(from: 0, to: progress)
     }
 }
 
