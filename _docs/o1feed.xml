@@ -1,3 +1,12 @@
+<Plan>
+The issue is likely that the initial video in `ContentFeedViewModel` is prepared but not explicitly played when the content is first loaded. The `updateActiveVideo` function is called when `currentIndex` changes, but not on initial load. We can modify the `loadContent` in the `ContentFeedViewModel` function to call `activatePlayerAsync` with the first video URL *after* the content is loaded, ensuring the player is ready. The logic to avoid playing twice will already be handled by the `activatePlayerAsync` method in the `VideoPlayerManager`, so there is no need for extra checks in the view model.
+</Plan>
+
+<file path="/Users/chrissutton/dev/sightline/sightline/sightline/Views/ContentFeedView/ContentFeedViewModel.swift" action="rewrite">
+  <change>
+    <description>Modify loadContent to play first video</description>
+    <content>
+===
 import SwiftUI
 import FirebaseFirestore
 import FirebaseAuth
@@ -156,3 +165,7 @@ final class ContentFeedViewModel: ObservableObject {
         }
     }
 }
+===
+    </content>
+  </change>
+</file>
