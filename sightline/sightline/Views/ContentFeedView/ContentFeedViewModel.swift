@@ -19,7 +19,13 @@ final class ContentFeedViewModel: ObservableObject {
             }
         }
     }
-    @Published var selectedCategory: FilterCategory = .restaurant
+    @Published var selectedCategory: FilterCategory = .restaurant {
+        didSet {
+            if selectedCategory != oldValue {
+                currentIndex = 0 // Reset index when category changes
+            }
+        }
+    }
     @Published var availableCategories: [FilterCategory] = []
     @Published var contentItems: [Content] = []
     
