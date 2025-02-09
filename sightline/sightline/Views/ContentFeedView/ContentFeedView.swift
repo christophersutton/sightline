@@ -50,46 +50,47 @@ struct ContentFeedView: View {
             // Menus
             HStack(alignment: .top) {
                 // Neighborhood Selection
-                NeighborhoodSelectorView(
-                    neighborhoodService: ServiceContainer.shared.neighborhood,
-                    selectedNeighborhood: $viewModel.selectedNeighborhood,
-                    isExpanded: $showingNeighborhoods,
-                    onExploreMore: {
-                        appState.shouldSwitchToDiscover = true
-                    },
-                    onNeighborhoodSelected: {
-                        Task {
-                            await viewModel.loadContent()
-                        }
-                    }
-                )
-                
-                Spacer()
-                
-                // Category Selection - now using .id(neighborhoodId) to force refresh
-                if let neighborhoodId = viewModel.selectedNeighborhood?.id {
-                    CategorySelectorView(
+                    NeighborhoodSelectorView(
                         neighborhoodService: ServiceContainer.shared.neighborhood,
-                        neighborhoodId: neighborhoodId,
-                        selectedCategory: $viewModel.selectedCategory,
-                        isExpanded: $showingCategories,
-                        onCategorySelected: {
+                        selectedNeighborhood: $viewModel.selectedNeighborhood,
+                        isExpanded: $showingNeighborhoods,
+                        onExploreMore: {
+                            appState.shouldSwitchToDiscover = true
+                        },
+                        onNeighborhoodSelected: {
                             Task {
                                 await viewModel.loadContent()
                             }
                         }
                     )
-                    .id(neighborhoodId)   // <-- Forces reinitialization when neighborhoodId changes
-                } else {
-                    // Fallback in the unlikely case where no neighborhood is selected.
-                    Text("Select a neighborhood")
-                        .foregroundColor(.white)
+                    
+                    Spacer()
+                    
+                    // Category Selection - now using .id(neighborhoodId) to force refresh
+                    if let neighborhoodId = viewModel.selectedNeighborhood?.id {
+                        CategorySelectorView(
+                            neighborhoodService: ServiceContainer.shared.neighborhood,
+                            neighborhoodId: neighborhoodId,
+                            selectedCategory: $viewModel.selectedCategory,
+                            isExpanded: $showingCategories,
+                            onCategorySelected: {
+                                Task {
+                                    await viewModel.loadContent()
+                                }
+                            }
+                        )
+                        .id(neighborhoodId)   // <-- Forces reinitialization when neighborhoodId changes
+                    } else {
+                        // Fallback in the unlikely case where no neighborhood is selected.
+                        Text("Select a neighborhood")
+                            .foregroundColor(.white)
+                    }
                 }
+                .padding(.top, 24)
+                .padding(.horizontal, 16)
+                .zIndex(2)
             }
-            .padding(.top, 24)
-            .padding(.horizontal, 16)
-            .zIndex(2)
-        }
+        
         .sheet(item: Binding(
             get: {
                 selectedPlaceId.map { PlaceDetailPresentation(placeId: $0) }
@@ -162,19 +163,23 @@ struct EmptyNeighborhoodState: View {
                             Text("Unlock Your First Neighborhood")
                                 .font(.custom("Baskerville-Bold", size: 28))
                                 .multilineTextAlignment(.center)
+                                .foregroundColor(.black)
+                                .opacity(0.9)
+                                .lineLimit(nil)
+                                .fixedSize(horizontal: false, vertical: true)
                             
                             Text("Discover local landmarks to unlock neighborhood content and start exploring stories from your community")
                                 .font(.custom("Baskerville", size: 18))
-                                .foregroundColor(.secondary)
+                                .foregroundColor(.black)
                                 .multilineTextAlignment(.center)
                             
                             Image(systemName: "camera.viewfinder")
-                                .font(.system(size: 44))
-                                .foregroundColor(.white.opacity(0.8))
+                                .font(.system(size: 72))
+                                .foregroundColor(.black.opacity(0.9))
                                 .padding(.top, 8)
                         }
                         .padding(24)
-                        .background(.ultraThinMaterial)
+                        .background(.thinMaterial)
                         .cornerRadius(16)
                         .shadow(radius: 8)
                     }

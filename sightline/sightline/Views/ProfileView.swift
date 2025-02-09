@@ -48,18 +48,19 @@ struct AuthView: View {
                             // Header
                             VStack(spacing: 8) {
                                 Text(isSignIn ? "Sign In" : "Create an Account")
-                                    .font(.custom("Baskerville-Bold", size: 28))
+                                .font(.custom("Baskerville-Bold", size: 24))
+                                .foregroundColor(.black)
                                 
                                 if viewModel.hasPendingSavedPlaces {
                                     Text("Sign up to save your places!")
                                         .font(.custom("Baskerville", size: 18))
-                                        .foregroundColor(.yellow)
+                                        .foregroundColor(.black)
                                         .multilineTextAlignment(.center)
                                         .padding(.horizontal)
                                 } else {
                                     Text(isSignIn ? "Welcome Back" : "Save Places, Post Content, and More")
                                         .font(.custom("Baskerville", size: 18))
-                                        .foregroundColor(.secondary)
+                                        .foregroundColor(.black)
                                         .multilineTextAlignment(.center)
                                 }
                             }
@@ -129,7 +130,7 @@ struct AuthView: View {
                             }
                         }
                         .padding(24)
-                        .background(.ultraThinMaterial)
+                        .background(.thinMaterial)
                         .cornerRadius(16)
                         .shadow(radius: 8)
                       
@@ -162,109 +163,140 @@ struct AuthView: View {
 // User Profile View
 struct UserProfileView: View {
     @ObservedObject var viewModel: ProfileViewModel
+    @State private var showProfileMenu = false
     
     var body: some View {
-        GeometryReader { geometry in
+        ZStack {
+            // Fixed Background
+            Image("profile-bg")
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .ignoresSafeArea()
+            
+            // Scrollable Content
             ScrollView {
-                ZStack {
-                    // Background Image
-                    Image("profile-bg")
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                        .clipped()
-                        .ignoresSafeArea()
+                VStack(spacing: 24) {
+                    // Profile Section
+                    profileSection
                     
-                    // Content
-                    VStack(spacing: 24) {
-                        // Profile Container
-                        VStack(spacing: 20) {
-                            // Avatar and Email
-                            VStack(spacing: 12) {
-                                Image(systemName: "person.circle.fill")
-                                    .resizable()
-                                    .frame(width: 80, height: 80)
-                                    .foregroundColor(.white)
-                                
-                                Text(viewModel.userEmail ?? "")
-                                    .font(.headline)
-                            }
-                            
-                            Divider()
-                                .background(.white.opacity(0.5))
-                            
-                            // Stats or other info could go here
-                            HStack(spacing: 32) {
-                                StatView(title: "Places", value: "0")
-                                StatView(title: "Posts", value: "0")
-                                StatView(title: "Likes", value: "0")
-                            }
-                        }
-                        .padding(24)
-                        .background(.ultraThinMaterial)
-                        .cornerRadius(16)
-                        .shadow(radius: 8)
-                        
-                        // Actions Container
-                        VStack(spacing: 16) {
-                            // Saved Places Section
-                            if !viewModel.savedPlaces.isEmpty {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    Text("Saved Places")
-                                        .font(.title3)
-                                        .fontWeight(.bold)
-                                    
-                                    ForEach(viewModel.savedPlaces, id: \.id) { place in
-                                        VStack(alignment: .leading) {
-                                            Text(place.name)
-                                                .font(.subheadline)
-                                                .fontWeight(.semibold)
-                                            Text(place.address)
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
-                                        }
-                                        .padding(.vertical, 8)
-                                        Divider()
-                                    }
-                                }
-                                .padding()
-                                .background(.ultraThinMaterial)
-                                .cornerRadius(12)
-                            }
-                            
-                            Button(action: {
-                                Task {
-                                    await viewModel.signOut()
-                                }
-                            }) {
-                                Text("Sign Out")
-                                    .frame(maxWidth: .infinity)
-                                    .padding()
-                                    .background(Color.red.opacity(0.8))
-                                    .foregroundColor(.white)
-                                    .cornerRadius(10)
-                            }
-                            
-                        }
-                        .padding(24)
-                        .background(.ultraThinMaterial)
-                        .cornerRadius(16)
-                        .shadow(radius: 8)
-                        
-                    }
-                    .padding()
+                    // Unlocked Neighborhoods Section
+                    unlockedNeighborhoodsSection
+                    
+                    // Saved Places Section
+                    savedPlacesSection
                 }
-                .frame(minHeight: geometry.size.height)
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .ignoresSafeArea(edges: .top)
-        }
-        .ignoresSafeArea(edges: .top)
-        .onAppear {
-            Task {
-                await viewModel.loadSavedPlaces()
+                .padding()
             }
         }
+        .confirmationDialog("Profile Options", isPresented: $showProfileMenu) {
+            Button("Add Profile Photo") {
+                // Photo functionality would go here
+            }
+            Button("Sign Out", role: .destructive) {
+                Task {
+                    await viewModel.signOut()
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        }
+    }
+    
+    private var profileSection: some View {
+        Button(action: { showProfileMenu = true }) {
+            HStack {
+                Image(systemName: "person.circle.fill")
+                    .resizable()
+                    .frame(width: 40, height: 40)
+                    .foregroundColor(.white)
+                
+                Text(viewModel.userEmail ?? "")
+                    .font(.headline)
+                    .foregroundColor(.white)
+                
+                Spacer()
+                
+                Image(systemName: "chevron.down")
+                    .foregroundColor(.white)
+            }
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(.ultraThinMaterial)
+            .cornerRadius(16)
+        }
+    }
+    
+    private var unlockedNeighborhoodsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Unlocked Neighborhoods")
+                .font(.title3)
+                .fontWeight(.bold)
+                .foregroundColor(.black)
+            
+            if viewModel.unlockedNeighborhoods.isEmpty {
+                Button(action: {
+                    // TODO: Navigate to camera view
+                }) {
+                    HStack {
+                        Text("Unlock your first neighborhood!")
+                            .foregroundColor(.white)
+                        Spacer()
+                        Image(systemName: "camera.fill")
+                            .foregroundColor(.white)
+                    }
+                    .padding(.vertical, 8)
+                }
+            } else {
+                ForEach(viewModel.unlockedNeighborhoods, id: \.self) { neighborhood in
+                    HStack {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text(neighborhood)
+                            .foregroundColor(.white)
+                        Spacer()
+                    }
+                    .padding(.vertical, 8)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .background(.ultraThinMaterial)
+        .cornerRadius(16)
+    }
+    
+    private var savedPlacesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Saved Places")
+                .font(.title3)
+                .fontWeight(.bold)
+                .foregroundColor(.black)
+            
+            if viewModel.savedPlaces.isEmpty {
+                Text("No saved places yet")
+                    .foregroundColor(.gray)
+                    .padding(.vertical, 8)
+            } else {
+                ForEach(viewModel.savedPlaces, id: \.id) { place in
+                    VStack(alignment: .leading) {
+                        Text(place.name)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+                        Text(place.address)
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 8)
+                    Divider()
+                        .background(.white.opacity(0.3))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .background(.ultraThinMaterial)
+        .cornerRadius(16)
     }
 }
 
@@ -296,6 +328,8 @@ class ProfileViewModel: ObservableObject {
     @Published var savedPlaces: [Place] = []
     
     @Published var hasPendingSavedPlaces = false
+    
+    @Published var unlockedNeighborhoods: [String] = []
     
     private let auth = ServiceContainer.shared.auth
     private let firestoreService = ServiceContainer.shared.firestore
@@ -451,6 +485,14 @@ class ProfileViewModel: ObservableObject {
             }
         } catch {
             print("Error fetching saved places: \(error)")
+        }
+    }
+    
+    func loadUnlockedNeighborhoods() async {
+        // TODO: Implement fetching unlocked neighborhoods from your backend
+        // For now, using placeholder data
+        await MainActor.run {
+            self.unlockedNeighborhoods = ["Downtown", "Midtown", "Uptown"]
         }
     }
 }
