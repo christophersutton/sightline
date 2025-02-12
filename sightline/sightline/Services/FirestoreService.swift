@@ -25,6 +25,7 @@ protocol FirestoreServiceProtocol {
     // New for saving places
     func savePlaceForUser(userId: String, placeId: String) async throws
     func fetchSavedPlaceIds(for userId: String) async throws -> [String]
+    func removeSavedPlace(userId: String, placeId: String) async throws
 }
 
 class FirestoreService: FirestoreServiceProtocol {
@@ -226,5 +227,14 @@ class FirestoreService: FirestoreServiceProtocol {
         ] as [String : Any]
         
         try await db.collection("annotationRequests").addDocument(data: annotationRequest)
+    }
+
+    func removeSavedPlace(userId: String, placeId: String) async throws {
+        let docRef = db.collection("users")
+            .document(userId)
+            .collection("saved_places")
+            .document(placeId)
+        
+        try await docRef.delete()
     }
 }

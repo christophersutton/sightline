@@ -164,39 +164,29 @@ struct AuthView: View {
 struct UserProfileView: View {
     @ObservedObject var viewModel: ProfileViewModel
     @State private var showProfileMenu = false
+    @State private var selectedPlace: Place?
+    @State private var showPlaceDetail = false
     
     var body: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                ZStack {
-                    // Background Image - fixed to fill entire screen
-                    Image("profile-bg")
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(
-                            width: geometry.size.width,
-                            height: max(geometry.size.height, UIScreen.main.bounds.height)
-                        )
-                        .ignoresSafeArea()
-                        .position(x: geometry.size.width/2, y: geometry.size.height/2)
-                    
-                    // Content
-                    VStack(spacing: 20) {
-                        profileSection
-                            .padding(.top, 60)
-                        
-                        unlockedNeighborhoodsSection
-                        
-                        savedPlacesSection
-                        
-                        Spacer(minLength: 20)
-                    }
-                    .padding(.horizontal)
-                }
-                .frame(minHeight: geometry.size.height)
+        ScrollView {
+            VStack(spacing: 20) {
+                profileSection
+                    .padding(.top, 60)
+                
+                unlockedNeighborhoodsSection
+                
+                savedPlacesSection
+                
+                Spacer(minLength: 20)
             }
-            .ignoresSafeArea(edges: .top)
+            .padding(.horizontal)
         }
+        .background(
+            Image("profile-bg")
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .ignoresSafeArea()
+        )
         .onAppear {
             Task {
                 await viewModel.loadData()
@@ -292,24 +282,32 @@ struct UserProfileView: View {
                 Text("No saved places yet")
                     .foregroundColor(.gray)
             } else {
-                VStack(spacing: 12) {
+                List {
                     ForEach(viewModel.savedPlaces) { place in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(place.name)
-                                .font(.subheadline.bold())
-                                .foregroundColor(.black)
-                            Text(place.address)
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        
-                        if place.id != viewModel.savedPlaces.last?.id {
-                            Divider()
-                                .background(Color.black.opacity(0.3))
+                        PlaceRow(place: place)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                Task {
+                                    await viewModel.preloadPlace(place.id)
+                                    selectedPlace = place
+                                    showPlaceDetail = true
+                                }
+                            }
+                    }
+                    .onDelete { indexSet in
+                        guard let index = indexSet.first else { return }
+                        let place = viewModel.savedPlaces[index]
+                        Task {
+                            await viewModel.removeSavedPlace(place)
                         }
                     }
                 }
+                .listStyle(.plain)
+                .frame(minHeight: CGFloat(viewModel.savedPlaces.count * 60))
+                .scrollContentBackground(.hidden)
             }
         }
         .padding(16)
@@ -318,6 +316,32 @@ struct UserProfileView: View {
                 .fill(.ultraThinMaterial)
                 .shadow(radius: 4)
         )
+        .sheet(item: $selectedPlace) { place in
+            PlaceDetailView(placeId: place.id)
+        }
+    }
+}
+
+// Simplify PlaceRow back to just showing the content
+private struct PlaceRow: View {
+    let place: Place
+    
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(place.name)
+                    .font(.subheadline.bold())
+                    .foregroundColor(.black)
+                Text(place.address)
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 8)
+            
+            Image(systemName: "chevron.right")
+                .foregroundColor(.gray)
+        }
     }
 }
 
@@ -537,6 +561,30 @@ class ProfileViewModel: ObservableObject {
             self.unlockedNeighborhoods = neighborhoods.map { $0.name }.sorted()
         } catch {
             print("Error fetching unlocked neighborhoods: \(error)")
+        }
+    }
+    
+    func removeSavedPlace(_ place: Place) async {
+        guard let userId = Auth.auth().currentUser?.uid else { return }
+        do {
+            try await firestoreService.removeSavedPlace(userId: userId, placeId: place.id)
+            // Remove from local array
+            savedPlaces.removeAll { $0.id == place.id }
+        } catch {
+            print("Error removing saved place: \(error)")
+            errorMessage = "Failed to remove place"
+        }
+    }
+    
+    func preloadPlace(_ placeId: String) async {
+        do {
+            // Wait for the place to be fully loaded before returning
+            let _ = try await firestoreService.fetchPlace(id: placeId)
+        } catch {
+            print("Error preloading place: \(error)")
+            await MainActor.run {
+                self.errorMessage = "Failed to load place details"
+            }
         }
     }
 }
