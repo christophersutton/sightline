@@ -15,14 +15,16 @@
  */
 
 import admin from "firebase-admin";
-import {processVideo} from "./src/videoProcessing";
-import {annotateImage} from "./src/landmarkDetection";
+import {annotateImage} from "./src/landmarkDetection.js";
+import {handleVideoProcessing,
+  handleVideoUpload} from "./src/videoProcessing.js";
 
 // Initialize Firebase Admin
 admin.initializeApp();
 
 // Export the functions
 export {
-  processVideo,
+  handleVideoProcessing,
+  handleVideoUpload,
   annotateImage,
 };

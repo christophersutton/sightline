@@ -23,6 +23,12 @@ struct Content: Identifiable, Codable, Equatable {
     let createdAt: Timestamp
     let updatedAt: Timestamp
     
+    // Processing status
+    var processingStatus: ProcessingStatus
+    var transcription: String?
+    var moderationResults: ModerationResults?
+    var processingError: ProcessingError?
+    
     // Equatable implementation (ignoring timestamps and simple comparisons)
     static func == (lhs: Content, rhs: Content) -> Bool {
         lhs.id == rhs.id &&
@@ -35,7 +41,11 @@ struct Content: Identifiable, Codable, Equatable {
         lhs.caption == rhs.caption &&
         lhs.tags == rhs.tags &&
         lhs.likes == rhs.likes &&
-        lhs.views == rhs.views
+        lhs.views == rhs.views &&
+        lhs.processingStatus == rhs.processingStatus &&
+        lhs.transcription == rhs.transcription &&
+        lhs.moderationResults == rhs.moderationResults &&
+        lhs.processingError == rhs.processingError
     }
     
     init(
@@ -51,7 +61,11 @@ struct Content: Identifiable, Codable, Equatable {
         likes: Int,
         views: Int,
         createdAt: Timestamp = Timestamp(),
-        updatedAt: Timestamp = Timestamp()
+        updatedAt: Timestamp = Timestamp(),
+        processingStatus: ProcessingStatus,
+        transcription: String? = nil,
+        moderationResults: ModerationResults? = nil,
+        processingError: ProcessingError? = nil
     ) {
         self.id = id
         self.placeIds = placeIds
@@ -66,5 +80,30 @@ struct Content: Identifiable, Codable, Equatable {
         self.views = views
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.processingStatus = processingStatus
+        self.transcription = transcription
+        self.moderationResults = moderationResults
+        self.processingError = processingError
     }
+}
+
+enum ProcessingStatus: String, Codable {
+    case uploading
+    case transcribing
+    case moderating
+    case tagging
+    case complete
+    case rejected
+}
+
+struct ModerationResults: Codable, Equatable {
+    let flagged: Bool
+    let categories: [String: Bool]
+    let categoryScores: [String: Double]
+}
+
+struct ProcessingError: Codable, Equatable {
+    let stage: String
+    let message: String
+    let timestamp: Date
 } 

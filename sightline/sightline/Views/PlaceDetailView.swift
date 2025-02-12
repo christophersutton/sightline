@@ -29,6 +29,8 @@ struct PlaceDetailView: View {
     // Add error state
     @State private var showError = false
 
+    @State private var showingVideoCapture = false  // Add this
+
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Sightline", category: "PlaceDetailView")
 
     init(placeId: String, mode: PlaceDetailMode = .discovery) {  // Update initializer
@@ -101,11 +103,11 @@ struct PlaceDetailView: View {
 
     var leaveReviewButton: some View {
         Button(action: {
-            // TODO: Implement review flow
+            showingVideoCapture = true
         }) {
             HStack {
-                Image(systemName: "star.fill")
-                Text("Leave a Review")
+                Image(systemName: "video.fill")
+                Text("Record Review")
             }
             .foregroundColor(.white)
             .padding(.vertical, 12)
@@ -115,6 +117,9 @@ struct PlaceDetailView: View {
         }
         .disabled(viewModel.place == nil)
         .opacity(viewModel.place == nil ? 0.6 : 1.0)
+        .fullScreenCover(isPresented: $showingVideoCapture) {
+            VideoCaptureView(placeId: placeId)
+        }
     }
 
     var mapView: some View {

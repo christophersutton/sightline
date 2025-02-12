@@ -68,26 +68,60 @@ class FirestoreService: FirestoreServiceProtocol {
     func fetchContentByCategory(category: FilterCategory, neighborhoodId: String?) async throws -> [Content] {
         print("🔍 Fetching content for category: \(category.rawValue), neighborhood: \(neighborhoodId ?? "all")")
         
+        // Start with base query
         var query = db.collection("content")
             .whereField("tags", arrayContains: category.rawValue)
-            .order(by: "createdAt", descending: true)
+            .whereField("processingStatus", isEqualTo: ProcessingStatus.complete.rawValue)
         
         if let neighborhoodId = neighborhoodId {
+            // Create a separate query when filtering by neighborhood
             query = query.whereField("neighborhoodId", isEqualTo: neighborhoodId)
         }
         
-        let snapshot = try await query.getDocuments()
+        // Add ordering after all filters
+        query = query.order(by: "createdAt", descending: true)
+            .limit(to: 50) // Add reasonable limit to prevent over-fetching
         
-        let content = snapshot.documents.compactMap { document -> Content? in
-            guard let content = try? document.data(as: Content.self) else {
-                print("⚠️ Failed to decode content: \(document.documentID)")
-                return nil
+        do {
+            let snapshot = try await query.getDocuments()
+            
+            let content = snapshot.documents.compactMap { document -> Content? in
+                do {
+                    return try document.data(as: Content.self)
+                } catch {
+                    print("⚠️ Failed to decode content: \(document.documentID), error: \(error)")
+                    return nil
+                }
             }
+            
+            print("✅ Found \(content.count) content items")
             return content
+        } catch let error as NSError {
+            // Check if the error is due to missing index
+            if error.domain == "FIRFirestoreErrorDomain" && error.code == 9 {
+                print("⚠️ Missing index error - falling back to client-side filtering")
+                
+                // Fallback to a simpler query without neighborhood filter
+                let snapshot = try await db.collection("content")
+                    .whereField("tags", arrayContains: category.rawValue)
+                    .whereField("processingStatus", isEqualTo: ProcessingStatus.complete.rawValue)
+                    .order(by: "createdAt", descending: true)
+                    .getDocuments()
+                
+                // Filter by neighborhood client-side if needed
+                let content = snapshot.documents.compactMap { document -> Content? in
+                    guard let content = try? document.data(as: Content.self) else { return nil }
+                    if let neighborhoodId = neighborhoodId {
+                        return content.neighborhoodId == neighborhoodId ? content : nil
+                    }
+                    return content
+                }
+                
+                print("✅ Found \(content.count) content items using fallback")
+                return content
+            }
+            throw error
         }
-        
-        print("✅ Found \(content.count) content items")
-        return content
     }
 
 
