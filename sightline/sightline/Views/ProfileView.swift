@@ -317,7 +317,7 @@ struct UserProfileView: View {
                 .shadow(radius: 4)
         )
         .sheet(item: $selectedPlace) { place in
-            PlaceDetailView(placeId: place.id)
+            PlaceDetailView(placeId: place.id, mode: .review)
         }
     }
 }

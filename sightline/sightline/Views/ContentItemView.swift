@@ -88,8 +88,8 @@ struct ContentItemView: View {
         }
         // Add sheet presentation
         .sheet(isPresented: $showingPlaceDetail) {
-            PlaceDetailView(placeId: content.placeIds[0])
-                .presentationDetents([.fraction(0.75), .large])  // Show 75% of screen by default
+            PlaceDetailView(placeId: content.placeIds[0], mode: .discovery)
+                .presentationDetents([.fraction(0.75), .large])
                 .presentationDragIndicator(.visible)
         }
         .onAppear {
