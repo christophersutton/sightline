@@ -166,26 +166,40 @@ struct UserProfileView: View {
     @State private var showProfileMenu = false
     
     var body: some View {
-        ZStack {
-            // Fixed Background
-            Image("profile-bg")
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .ignoresSafeArea()
-            
-            // Scrollable Content
+        GeometryReader { geometry in
             ScrollView {
-                VStack(spacing: 24) {
-                    // Profile Section
-                    profileSection
+                ZStack {
+                    // Background Image - fixed to fill entire screen
+                    Image("profile-bg")
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(
+                            width: geometry.size.width,
+                            height: max(geometry.size.height, UIScreen.main.bounds.height)
+                        )
+                        .ignoresSafeArea()
+                        .position(x: geometry.size.width/2, y: geometry.size.height/2)
                     
-                    // Unlocked Neighborhoods Section
-                    unlockedNeighborhoodsSection
-                    
-                    // Saved Places Section
-                    savedPlacesSection
+                    // Content
+                    VStack(spacing: 20) {
+                        profileSection
+                            .padding(.top, 60)
+                        
+                        unlockedNeighborhoodsSection
+                        
+                        savedPlacesSection
+                        
+                        Spacer(minLength: 20)
+                    }
+                    .padding(.horizontal)
                 }
-                .padding()
+                .frame(minHeight: geometry.size.height)
+            }
+            .ignoresSafeArea(edges: .top)
+        }
+        .onAppear {
+            Task {
+                await viewModel.loadData()
             }
         }
         .confirmationDialog("Profile Options", isPresented: $showProfileMenu) {
@@ -203,33 +217,37 @@ struct UserProfileView: View {
     
     private var profileSection: some View {
         Button(action: { showProfileMenu = true }) {
-            HStack {
+            HStack(spacing: 12) {
                 Image(systemName: "person.circle.fill")
                     .resizable()
                     .frame(width: 40, height: 40)
-                    .foregroundColor(.white)
+                    .foregroundColor(.black)
                 
-                Text(viewModel.userEmail ?? "")
-                    .font(.headline)
-                    .foregroundColor(.white)
+                VStack(alignment: .leading) {
+                    Text(viewModel.userEmail ?? "")
+                        .font(.headline)
+                        .foregroundColor(.black)
+                        .lineLimit(1)
+                }
                 
                 Spacer()
                 
                 Image(systemName: "chevron.down")
-                    .foregroundColor(.white)
+                    .foregroundColor(.black)
             }
-            .frame(maxWidth: .infinity)
-            .padding()
-            .background(.ultraThinMaterial)
-            .cornerRadius(16)
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(.ultraThinMaterial)
+                    .shadow(radius: 4)
+            )
         }
     }
     
     private var unlockedNeighborhoodsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 16) {
             Text("Unlocked Neighborhoods")
-                .font(.title3)
-                .fontWeight(.bold)
+                .font(.title3.bold())
                 .foregroundColor(.black)
             
             if viewModel.unlockedNeighborhoods.isEmpty {
@@ -238,65 +256,68 @@ struct UserProfileView: View {
                 }) {
                     HStack {
                         Text("Unlock your first neighborhood!")
-                            .foregroundColor(.white)
+                            .foregroundColor(.black)
                         Spacer()
                         Image(systemName: "camera.fill")
-                            .foregroundColor(.white)
+                            .foregroundColor(.black)
                     }
-                    .padding(.vertical, 8)
                 }
             } else {
                 ForEach(viewModel.unlockedNeighborhoods, id: \.self) { neighborhood in
-                    HStack {
+                    HStack(spacing: 12) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
                         Text(neighborhood)
-                            .foregroundColor(.white)
+                            .foregroundColor(.black)
                         Spacer()
                     }
-                    .padding(.vertical, 8)
                 }
             }
         }
-        .frame(maxWidth: .infinity)
-        .padding()
-        .background(.ultraThinMaterial)
-        .cornerRadius(16)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(.ultraThinMaterial)
+                .shadow(radius: 4)
+        )
     }
     
     private var savedPlacesSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 16) {
             Text("Saved Places")
-                .font(.title3)
-                .fontWeight(.bold)
+                .font(.title3.bold())
                 .foregroundColor(.black)
             
             if viewModel.savedPlaces.isEmpty {
                 Text("No saved places yet")
                     .foregroundColor(.gray)
-                    .padding(.vertical, 8)
             } else {
-                ForEach(viewModel.savedPlaces, id: \.id) { place in
-                    VStack(alignment: .leading) {
-                        Text(place.name)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.white)
-                        Text(place.address)
-                            .font(.caption)
-                            .foregroundColor(.gray)
+                VStack(spacing: 12) {
+                    ForEach(viewModel.savedPlaces) { place in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(place.name)
+                                .font(.subheadline.bold())
+                                .foregroundColor(.black)
+                            Text(place.address)
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        
+                        if place.id != viewModel.savedPlaces.last?.id {
+                            Divider()
+                                .background(Color.black.opacity(0.3))
+                        }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 8)
-                    Divider()
-                        .background(.white.opacity(0.3))
                 }
             }
         }
-        .frame(maxWidth: .infinity)
-        .padding()
-        .background(.ultraThinMaterial)
-        .cornerRadius(16)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(.ultraThinMaterial)
+                .shadow(radius: 4)
+        )
     }
 }
 
@@ -333,6 +354,7 @@ class ProfileViewModel: ObservableObject {
     
     private let auth = ServiceContainer.shared.auth
     private let firestoreService = ServiceContainer.shared.firestore
+    private let neighborhoodService = ServiceContainer.shared.neighborhood
     
     func checkAuthState() {
         if let user = Auth.auth().currentUser {
@@ -465,21 +487,41 @@ class ProfileViewModel: ObservableObject {
         }
     }
     
-    // Fetch the user's saved places from Firestore
+    func loadData() async {
+        guard !isAnonymous else { return }
+        
+        // Load both saved places and neighborhoods concurrently
+        async let savedPlacesTask = loadSavedPlaces()
+        async let neighborhoodsTask = loadUnlockedNeighborhoods()
+        
+        // Wait for both to complete
+        _ = await (savedPlacesTask, neighborhoodsTask)
+    }
+    
     func loadSavedPlaces() async {
-        guard let userId = Auth.auth().currentUser?.uid, !isAnonymous else { return }
+        guard let userId = Auth.auth().currentUser?.uid else { return }
         do {
             let placeIds = try await firestoreService.fetchSavedPlaceIds(for: userId)
             var fetched: [Place] = []
-            for pid in placeIds {
-                do {
-                    let place = try await firestoreService.fetchPlace(id: pid)
-                    fetched.append(place)
-                } catch {
-                    print("Failed to fetch place (\(pid)): \(error)")
+            
+            // Use async let to fetch places concurrently
+            try await withThrowingTaskGroup(of: Place?.self) { group in
+                for pid in placeIds {
+                    group.addTask {
+                        try await self.firestoreService.fetchPlace(id: pid)
+                    }
+                }
+                
+                for try await place in group {
+                    if let place = place {
+                        fetched.append(place)
+                    }
                 }
             }
-            // Sort or manipulate as needed
+            
+            // Sort places by name
+            fetched.sort { $0.name < $1.name }
+            
             await MainActor.run {
                 self.savedPlaces = fetched
             }
@@ -489,10 +531,12 @@ class ProfileViewModel: ObservableObject {
     }
     
     func loadUnlockedNeighborhoods() async {
-        // TODO: Implement fetching unlocked neighborhoods from your backend
-        // For now, using placeholder data
-        await MainActor.run {
-            self.unlockedNeighborhoods = ["Downtown", "Midtown", "Uptown"]
+        guard let userId = Auth.auth().currentUser?.uid else { return }
+        do {
+            let neighborhoods = try await neighborhoodService.fetchUnlockedNeighborhoods()
+            self.unlockedNeighborhoods = neighborhoods.map { $0.name }.sorted()
+        } catch {
+            print("Error fetching unlocked neighborhoods: \(error)")
         }
     }
 }
