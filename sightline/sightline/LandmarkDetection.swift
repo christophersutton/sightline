@@ -210,29 +210,38 @@ struct LandmarkDetectionView: View {
     /// Runs the scanning animations, clears the neighborhood cache, reloads unlocked neighborhoods,
     /// and updates the feed with the new neighborhood before showing the overlay.
     private func animateLandmarkDetectionFlow(landmark: LandmarkInfo) async {
+        let startTime = Date()
+        print("🕒 Starting landmark flow at: \(startTime)")
+        
         // Trigger flash, haptic and success message
         withAnimation {
             shouldFlash = true
         }
+        print("🕒 Flash triggered: +\(Date().timeIntervalSince(startTime))s")
         
         // Stop camera immediately
         isCameraMode = false
         viewModel.captureCompleted()
+        print("🕒 Camera stopped: +\(Date().timeIntervalSince(startTime))s")
         
         // Show unlock overlay immediately with loading state
         if let neighborhood = landmark.neighborhood {
+            print("🕒 About to show overlay: +\(Date().timeIntervalSince(startTime))s")
             withAnimation(.easeInOut) {
                 previewNeighborhood = neighborhood
                 previewLandmark = landmark
                 showUnlockedOverlay = true
             }
+            print("🕒 Overlay animation started: +\(Date().timeIntervalSince(startTime))s")
             
             // Load data in background after showing UI
             Task {
+                print("🕒 Starting background tasks: +\(Date().timeIntervalSince(startTime))s")
                 await ServiceContainer.shared.neighborhood.clearCache()
                 await feedViewModel.loadUnlockedNeighborhoods()
                 feedViewModel.selectedNeighborhood = neighborhood
                 await feedViewModel.loadContent()
+                print("🕒 Background tasks completed: +\(Date().timeIntervalSince(startTime))s")
             }
         }
     }

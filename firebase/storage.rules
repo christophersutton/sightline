@@ -5,6 +5,15 @@ rules_version = '2';
 //    /databases/(default)/documents/users/$(request.auth.uid)).data.isAdmin;
 service firebase.storage {
   match /b/{bucket}/o {
+    match /content/{fileName} {
+      // Allow read access to authenticated users
+      allow read: if request.auth != null;
+      
+      // For now, only allow writes through Firebase Admin SDK (server-side)
+      allow write: if false;
+    }
+    
+    // Default deny for all other paths
     match /{allPaths=**} {
       allow read, write: if false;
     }

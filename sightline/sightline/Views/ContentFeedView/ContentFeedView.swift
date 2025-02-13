@@ -49,7 +49,9 @@ struct ContentFeedView: View {
             
             // Menus
             HStack(alignment: .top) {
-                // Neighborhood Selection
+                // Only show these controls if there are unlocked neighborhoods
+                if !viewModel.unlockedNeighborhoods.isEmpty {
+                    // Neighborhood Selection
                     NeighborhoodSelectorView(
                         neighborhoodService: ServiceContainer.shared.neighborhood,
                         selectedNeighborhood: $viewModel.selectedNeighborhood,
@@ -79,17 +81,14 @@ struct ContentFeedView: View {
                                 }
                             }
                         )
-                        .id(neighborhoodId)   // <-- Forces reinitialization when neighborhoodId changes
-                    } else {
-                        // Fallback in the unlikely case where no neighborhood is selected.
-                        Text("Select a neighborhood")
-                            .foregroundColor(.white)
+                        .id(neighborhoodId)
                     }
                 }
-                .padding(.top, 24)
-                .padding(.horizontal, 16)
-                .zIndex(2)
             }
+            .padding(.top, 24)
+            .padding(.horizontal, 16)
+            .zIndex(2)
+        }
         
         .sheet(item: Binding(
             get: {
