@@ -46,39 +46,25 @@ struct ContentFeedView: View {
     }
 
   private var feedView: some View {
-          VerticalFeedView(
-              currentIndex: $appStore.currentIndex,
-              itemCount: appStore.contentItems.count,
-              onIndexChanged: { index in
-                  appStore.currentIndex = index // ONLY update the index here
-              }
-          ) { index in
-              if index < appStore.contentItems.count {
-                  // KEY CHANGE:  We now only use *one* ContentItemView,
-                  // and its content is driven by appStore.currentContentItem.
-                   Color.clear // Use Color.clear as placeholder
+      VerticalFeedView(
+          currentIndex: $appStore.currentIndex,
+          itemCount: appStore.contentItems.count,
+          onIndexChanged: { index in
+              // Optionally, preload next items here.
+          }
+      ) { index in
+          if index < appStore.contentItems.count {
+              ContentItemView(content: appStore.contentItems[index])
                   .onTapGesture {
                       let placeIds = appStore.contentItems[index].placeIds
                       if !placeIds.isEmpty { selectedPlaceId = placeIds[0] }
                   }
-              } else {
-                  Color.black
-              }
+          } else {
+              Color.black
           }
-          .ignoresSafeArea()
-          // This .id() is no longer needed because we are updating contentItems
-          //.id("\(appStore.selectedNeighborhood?.id ?? "none")-\(appStore.selectedCategory.id)")
-          // Overlay our single ContentItemView
-             .overlay(
-                 Group {
-                      if let currentContentItem = appStore.currentContentItem {
-                         ContentItemView(content: currentContentItem)
-                             .environmentObject(appStore)
-                             .id(currentContentItem.id) // KEY: Rebuild this view when content changes
-                      }
-                 }
-             )
       }
+      .ignoresSafeArea()
+  }
   
     // Subview for the top menu bar (neighborhood and category selectors)
     private var menuBar: some View {

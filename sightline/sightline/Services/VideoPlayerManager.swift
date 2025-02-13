@@ -64,6 +64,17 @@ class VideoPlayerManager: ObservableObject {
         currentlyPlayingUrl = nil
         preloadedPlayers.removeAll()
     }
+  
+  func fetchPlayer(for url: String) async throws -> AVQueuePlayer {
+          // Return the cached player if available
+          if let cached = preloadedPlayers[url] {
+              return cached
+          }
+          // Otherwise, create a new one using your existing preparePlayer logic.
+          let player = try await preparePlayer(for: url)
+          preloadedPlayers[url] = player
+          return player
+      }
     
     private func preparePlayer(for url: String) async throws -> AVQueuePlayer {
         print("📺 Preparing player for URL: \(url)")
@@ -151,7 +162,7 @@ class VideoPlayerManager: ObservableObject {
         return preloadedPlayers[url]
     }
 
-    private func getDownloadURL(for gsUrl: String) async throws -> URL {
+    func getDownloadURL(for gsUrl: String) async throws -> URL {
         let storageRef = Storage.storage().reference(forURL: gsUrl)
         return try await storageRef.downloadURL()
     }

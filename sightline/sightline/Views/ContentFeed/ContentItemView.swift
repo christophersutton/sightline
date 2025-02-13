@@ -6,29 +6,53 @@ import FirebaseStorage
 struct ContentItemView: View {
     @EnvironmentObject var appStore: AppStore
     let content: Content
-    
+    @State private var player: AVQueuePlayer?
+    @State private var isLoading = true
+    @State private var error: Error?
+
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                if appStore.currentContentItem?.id == content.id {
-                    if let player = appStore.videoManager.currentPlayer {
-                        VideoPlayer(player: player)
-                            .edgesIgnoringSafeArea(.all)
-                    } else {
-                        LoadingView()
-                    }
+                if let player = player {
+                    VideoPlayer(player: player)
+                        .edgesIgnoringSafeArea(.all)
+                } else if isLoading {
+                    LoadingView()
                 } else {
-                    Color.black
+                    ErrorView()
                 }
-                
                 ContentOverlay(content: content)
             }
         }
-        .onAppear {
-            print("📱 ContentItemView appeared for content: \(content.id)")
-            Task {
-                await appStore.setCurrentContent(content)
+        .onAppear { loadPlayer() }
+        .onDisappear { player?.pause() }
+    }
+    
+  private func loadPlayer() {
+      guard player == nil else { return }
+      Task {
+          do {
+              let newPlayer = try await appStore.videoManager.fetchPlayer(for: content.videoUrl)
+              await MainActor.run {
+                  player = newPlayer
+                  newPlayer.play()
+                  isLoading = false
+              }
+          } catch {
+              await MainActor.run {
+                  self.error = error
+                  isLoading = false
+              }
+          }
+      }
+  }
+    
+    private func waitUntilReady(_ item: AVPlayerItem) async throws {
+        while item.status != .readyToPlay {
+            if item.status == .failed {
+                throw item.error ?? NSError(domain: "ContentItemView", code: -1, userInfo: nil)
             }
+            try await Task.sleep(nanoseconds: 50_000_000)
         }
     }
 }

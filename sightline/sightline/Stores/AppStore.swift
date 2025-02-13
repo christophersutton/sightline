@@ -4,9 +4,6 @@
 //
 //  Created by Chris Sutton on 2/13/25.
 //
-
-
-// sightline/sightline/Stores/AppStore.swift
 import Combine
 import FirebaseFirestore
 import SwiftUI
@@ -19,7 +16,6 @@ class AppStore: Store {
       @Published var places: [String: Place] = [:]
       @Published var selectedNeighborhood: Neighborhood? {
           didSet {
-              currentContentItem = nil // IMMEDIATELY clear the current video
               currentIndex = 0
               Task {
                   await loadContent()
@@ -29,7 +25,6 @@ class AppStore: Store {
 
       @Published var selectedCategory: FilterCategory = .restaurant {
           didSet {
-              currentContentItem = nil // IMMEDIATELY clear the current video
               currentIndex = 0
               Task {
                   await loadContent()
@@ -37,18 +32,7 @@ class AppStore: Store {
           }
       }
 
-      @Published var currentIndex: Int = 0 {
-          didSet {
-            if contentItems.indices.contains(currentIndex) {
-                Task {
-                    await setCurrentContent(contentItems[currentIndex])
-                }
-            }
-          }
-      }
-
-      // KEY CHANGE:  Publish the *current Content item*
-      @Published var currentContentItem: Content?
+      @Published var currentIndex: Int = 0
 
     private var cancellables = Set<AnyCancellable>() // Manage Combine subscriptions
 
@@ -90,7 +74,7 @@ class AppStore: Store {
           guard let neighborhood = selectedNeighborhood else {
               contentItems = []
               places = [:]
-              currentContentItem = nil // Ensure video is cleared
+              
               return
           }
           do {
@@ -114,37 +98,17 @@ class AppStore: Store {
               contentItems = content
               places.merge(placeMap) { (_, new) in new }
 
-              // Explicitly set first content
-              if let firstContent = contentItems.first {
-                  await setCurrentContent(firstContent)
-              }
+            let videoURLs = content.map { $0.videoUrl }
+            videoManager.preloadVideos(for: videoURLs, at: currentIndex)
 
+              
           } catch {
               print("Error loading content: \(error)")
               contentItems = []
               places = [:]
-              currentContentItem = nil // Clear on error
+              
           }
       }
-
-    func setCurrentContent(_ content: Content?) async {
-        print("🎬 Setting current content: \(content?.id ?? "nil")")
-        
-        // Only proceed if content is different
-        guard content?.id != currentContentItem?.id else {
-            print("🎬 Content already current, skipping")
-            return
-        }
-        
-        currentContentItem = content
-        
-        if let videoUrl = content?.videoUrl {
-            print("🎬 Activating video: \(videoUrl)")
-            await videoManager.activatePlayer(for: videoUrl)
-        } else {
-            await videoManager.cleanup()
-        }
-    }
     
     func pauseCurrentVideo() {
         videoManager.pause()
