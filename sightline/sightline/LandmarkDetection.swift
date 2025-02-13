@@ -1,26 +1,25 @@
+// sightline/sightline/Views/LandmarkDetection.swift
 import SwiftUI
 import UIKit
 import FirebaseAuth
 import FirebaseFirestore
 
-/// Main Landmark Detection View + ViewModel,
-/// referencing the new LandmarkDetectionService and LandmarkInfo model.
 struct LandmarkDetectionView: View {
     @EnvironmentObject var appState: AppState
-    @EnvironmentObject var feedViewModel: ContentFeedViewModel
+    @EnvironmentObject var appStore: AppStore // Inject AppStore
+    @EnvironmentObject var landmarkDetectionStore: LandmarkDetectionStore // Use the store
 
     private let detectionService = LandmarkDetectionService()
 
-    @StateObject private var viewModel: LandmarkDetectionViewModel = LandmarkDetectionViewModel()
     @State private var isCameraMode = false
 
-    // Scanning UI
+    // Scanning UI (Keep these)
     @State private var showTransition: Bool = false
     @State private var shouldFlash = false
     @State private var fadeToBlack = false
     @State private var showingGalleryPicker = false
 
-    // Overlay states
+    // Overlay states (Keep these)
     @State private var showUnlockedOverlay = false
     @State private var previewNeighborhood: Neighborhood? = nil
     @State private var previewLandmark: LandmarkInfo? = nil
@@ -30,7 +29,7 @@ struct LandmarkDetectionView: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Background
+                // Background (Keep this)
                 Image("discoverbg")
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -41,22 +40,22 @@ struct LandmarkDetectionView: View {
                     CameraView(
                         onFrameCaptured: { image in
                             Task {
-                                await viewModel.detectLandmark(image: image, using: detectionService)
-                                if let landmark = viewModel.detectedLandmark {
+                                await landmarkDetectionStore.detectLandmark(image: image, using: detectionService)
+                                if let landmark = landmarkDetectionStore.detectedLandmark {
                                     await animateLandmarkDetectionFlow(landmark: landmark)
                                 }
                             }
                         },
                         shouldFlash: $shouldFlash
                     )
-                    .environmentObject(viewModel)
+                    .environmentObject(landmarkDetectionStore) // Inject into CameraView
 
-                    // Close Button and Status Message
+                    // Close Button and Status Message (Modified for LandmarkDetectionStore)
                     VStack {
                         HStack {
                             Button {
                                 isCameraMode = false
-                                viewModel.reset()
+                                landmarkDetectionStore.reset() // Use store's reset
                             } label: {
                                 Image(systemName: "xmark")
                                     .font(.title2)
@@ -84,14 +83,12 @@ struct LandmarkDetectionView: View {
                         .opacity(fadeToBlack ? 1.0 : 0.0)
                         .ignoresSafeArea()
                 } else {
+                    // Main Screen (Keep this, but modify button action)
                     ScrollView {
                         GeometryReader { scrollGeometry in
                             VStack {
                                 Spacer(minLength: 800)
                                 VStack(spacing: 16) {
-//                                    Image(systemName: "camera.viewfinder")
-//                                        .font(.system(size: 64))
-//                                        .foregroundColor(Color(.systemYellow))
                                     Text("Discover Your City")
                                         .font(.custom("Baskerville-Bold", size: 28))
                                         .foregroundColor(.black)
@@ -138,6 +135,7 @@ struct LandmarkDetectionView: View {
                     }
                 }
 
+                // Overlay (Modified for LandmarkDetectionStore and AppStore)
                 if showUnlockedOverlay, let nb = previewNeighborhood, let lm = previewLandmark {
                     NeighborhoodUnlockedView(
                         neighborhood: nb,
@@ -146,7 +144,7 @@ struct LandmarkDetectionView: View {
                             withAnimation(.easeOut(duration: 0.3)) {
                                 showUnlockedOverlay = false
                                 resetOverlayState()
-                                appState.shouldSwitchToFeed = true
+                                appState.shouldSwitchToFeed = true // Navigate to feed
                             }
                         }
                     )
@@ -156,7 +154,7 @@ struct LandmarkDetectionView: View {
                 }
             }
             .ignoresSafeArea(.container, edges: [.top])
-            .sheet(isPresented: $showingGalleryPicker) {
+            .sheet(isPresented: $showingGalleryPicker) { // Keep this, but modify for LandmarkDetectionStore
                 NavigationView {
                     ScrollView {
                         LazyVGrid(columns: [
@@ -164,7 +162,7 @@ struct LandmarkDetectionView: View {
                             GridItem(.flexible()),
                             GridItem(.flexible())
                         ], spacing: 8) {
-                            ForEach(viewModel.debugImages, id: \.self) { name in
+                            ForEach(landmarkDetectionStore.debugImages, id: \.self) { name in
                                 Image(name)
                                     .resizable()
                                     .aspectRatio(contentMode: .fill)
@@ -173,8 +171,8 @@ struct LandmarkDetectionView: View {
                                     .onTapGesture {
                                         if let uiImage = UIImage(named: name) {
                                             Task {
-                                                await viewModel.detectLandmark(image: uiImage, using: detectionService)
-                                                if let landmark = viewModel.detectedLandmark {
+                                                await landmarkDetectionStore.detectLandmark(image: uiImage, using: detectionService)
+                                                if let landmark = landmarkDetectionStore.detectedLandmark {
                                                     await animateLandmarkDetectionFlow(landmark: landmark)
                                                 }
                                             }
@@ -207,18 +205,16 @@ struct LandmarkDetectionView: View {
         previewLandmark = nil
     }
 
-    /// Runs the scanning animations, clears the neighborhood cache, reloads unlocked neighborhoods,
-    /// and updates the feed with the new neighborhood before showing the overlay.
     private func animateLandmarkDetectionFlow(landmark: LandmarkInfo) async {
         // Trigger flash, haptic and success message
         withAnimation {
             shouldFlash = true
         }
-        
+
         // Stop camera immediately
         isCameraMode = false
-        viewModel.captureCompleted()
-        
+        landmarkDetectionStore.captureCompleted() // Use store's method
+
         // Show unlock overlay immediately with loading state
         if let neighborhood = landmark.neighborhood {
             withAnimation(.easeInOut) {
@@ -226,122 +222,14 @@ struct LandmarkDetectionView: View {
                 previewLandmark = landmark
                 showUnlockedOverlay = true
             }
-            
+
             // Load data in background after showing UI
             Task {
                 await ServiceContainer.shared.neighborhood.clearCache()
-                await feedViewModel.loadUnlockedNeighborhoods()
-                feedViewModel.selectedNeighborhood = neighborhood
-                await feedViewModel.loadContent()
+                await appStore.loadUnlockedNeighborhoods() // Reload neighborhoods
+                appStore.selectedNeighborhood = neighborhood // Set selected neighborhood
+                await appStore.loadContent() // Load content for the new neighborhood
             }
         }
-    }
-}
-
-/// ViewModel for controlling Landmark Detection
-@MainActor
-final class LandmarkDetectionViewModel: ObservableObject {
-    @Published var detectedLandmark: LandmarkInfo? = nil
-    @Published var errorMessage: String = ""
-    @Published var debugImages: [String] = ["utcapitol1", "utcapitol2", "ladybirdlake1"]
-    @Published var isCapturing = false
-
-    private var consecutiveFailures = 0
-    private let maxFailuresBeforeNotice = 3
-    private var hasDetectedLandmark = false
-    
-    func startCapture() {
-        isCapturing = true
-        errorMessage = "Scanning..."
-        consecutiveFailures = 0
-        hasDetectedLandmark = false
-    }
-    
-    func captureCompleted() {
-        isCapturing = false
-        if detectedLandmark == nil {
-            errorMessage = "None detected, try finding another landmark."
-        }
-    }
-    
-    func reset() {
-        isCapturing = false
-        errorMessage = ""
-        detectedLandmark = nil
-        consecutiveFailures = 0
-        hasDetectedLandmark = false
-    }
-
-    func detectLandmark(image: UIImage, using service: LandmarkDetectionService) async {
-        guard !hasDetectedLandmark else { return }
-        
-        self.detectedLandmark = nil
-        do {
-            if let landmarkData = try await service.detectLandmark(in: image) {
-                hasDetectedLandmark = true
-                consecutiveFailures = 0
-                let name = (landmarkData["name"] as? String) ?? "Unknown"
-                let locations = (landmarkData["locations"] as? [[String: Any]]) ?? []
-                var lat: Double? = nil
-                var lon: Double? = nil
-                if let firstLocation = locations.first,
-                   let latLng = firstLocation["latLng"] as? [String: Any] {
-                    lat = latLng["latitude"] as? Double
-                    lon = latLng["longitude"] as? Double
-                }
-                let nbData = landmarkData["neighborhood"] as? [String: Any]
-                let neighborhood = buildNeighborhood(from: nbData)
-                let landmarkInfo = LandmarkInfo(
-                    name: name,
-                    latitude: lat,
-                    longitude: lon,
-                    neighborhood: neighborhood
-                )
-                self.detectedLandmark = landmarkInfo
-                self.errorMessage = ""
-                consecutiveFailures = 0
-            } else {
-                consecutiveFailures += 1
-                if consecutiveFailures >= maxFailuresBeforeNotice && isCapturing {
-                    self.errorMessage = "No landmarks detected yet... Keep scanning the area"
-                }
-            }
-        } catch {
-            consecutiveFailures += 1
-            if consecutiveFailures >= maxFailuresBeforeNotice && isCapturing {
-                self.errorMessage = "Having trouble detecting landmarks. Try moving closer or adjusting your angle."
-            } else {
-                self.errorMessage = "Error: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    private func buildNeighborhood(from data: [String: Any]?) -> Neighborhood? {
-        guard let data = data,
-              let placeId = data["place_id"] as? String,
-              let nbName = data["name"] as? String,
-              let geometry = data["bounds"] as? [String: Any],
-              let ne = geometry["northeast"] as? [String: Any],
-              let sw = geometry["southwest"] as? [String: Any] else {
-            return nil
-        }
-        let bounds = Neighborhood.GeoBounds(
-            northeast: Neighborhood.GeoBounds.Point(
-                lat: ne["lat"] as? Double ?? 0,
-                lng: ne["lng"] as? Double ?? 0
-            ),
-            southwest: Neighborhood.GeoBounds.Point(
-                lat: sw["lat"] as? Double ?? 0,
-                lng: sw["lng"] as? Double ?? 0
-            )
-        )
-        return Neighborhood(
-            id: placeId,
-            name: nbName,
-            description: nil,
-            imageUrl: nil,
-            bounds: bounds,
-            landmarks: nil
-        )
     }
 }

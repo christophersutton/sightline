@@ -1,26 +1,16 @@
+// sightline/sightline/Views/ContentItemView.swift
 import SwiftUI
 import AVKit
 import FirebaseStorage
 
-@MainActor
 struct ContentItemView: View {
     @EnvironmentObject var appState: AppState
-    @EnvironmentObject var feedViewModel: ContentFeedViewModel
+    @EnvironmentObject var appStore: AppStore // Use AppStore
     let content: Content
-    @StateObject private var viewModel: ContentItemViewModel
-    @Environment(\.safeAreaInsets) private var safeAreaInsets
-    
-    // Add state for showing the sheet
     @State private var showingPlaceDetail = false
-    
-    init(content: Content) {
-        self.content = content
-        _viewModel = StateObject(wrappedValue: ContentItemViewModel(
-            content: content,
-            services: ServiceContainer.shared
-        ))
-    }
-    
+    @Environment(\.safeAreaInsets) private var safeAreaInsets
+    @State private var isVideoReady = false
+
     var body: some View {
         Group {
             switch content.processingStatus {
@@ -28,12 +18,13 @@ struct ContentItemView: View {
                 // Normal content view
                 GeometryReader { geo in
                     ZStack {
-                        if let player = feedViewModel.videoManager.playerFor(url: content.videoUrl) {
+                        if let player = appStore.videoManager.playerFor(url: content.videoUrl) {
                             VideoPlayer(player: player)
                                 .edgesIgnoringSafeArea(.all)
                                 .frame(width: geo.size.width, height: geo.size.height + safeAreaInsets.top + safeAreaInsets.bottom)
                                 .offset(y: -safeAreaInsets.top)
-                        } else if feedViewModel.videoManager.error != nil {
+                                .opacity(isVideoReady ? 1.0 : 0.0)
+                        } else if appStore.videoManager.error != nil { //Use app store
                             Color.black
                             VStack {
                                 Image(systemName: "exclamationmark.triangle")
@@ -47,11 +38,11 @@ struct ContentItemView: View {
                             ProgressView()
                                 .scaleEffect(1.5)
                         }
-                        
+
                         // Overlay info - restructured
                         VStack {
                             Spacer()
-                            
+
                             // Content info overlay
                             VStack(spacing: 8) {
                                 HStack {
@@ -60,12 +51,13 @@ struct ContentItemView: View {
                                             .font(.headline)
                                             .foregroundColor(.white)
                                             .multilineTextAlignment(.leading)
-                                        
+
                                         // Replace NavigationLink with Button
                                         Button {
                                             showingPlaceDetail = true
                                         } label: {
-                                            Text(viewModel.placeName ?? "Loading place...")
+                                            // Directly get placeName from appStore
+                                            Text(appStore.places[content.placeIds[0]]?.name ?? "Loading place...")
                                                 .font(.subheadline)
                                                 .foregroundColor(.white)
                                                 .padding(.horizontal, 12)
@@ -105,47 +97,14 @@ struct ContentItemView: View {
                 .presentationDragIndicator(.visible)
         }
         .onAppear {
-            Task {
-                await viewModel.loadPlace()
-            }
-        }
-    }
-}
-
-@MainActor
-final class ContentItemViewModel: ObservableObject {
-    @Published var placeName: String?
-    @Published var isLoadingPlace = true
-    private let content: Content
-    private let services: ServiceContainer
-    
-    init(content: Content, services: ServiceContainer) {
-        self.content = content
-        self.services = services
-    }
-    
-    func loadPlace() async {
-        isLoadingPlace = true
-        do {
-            let place = try await services.firestore.fetchPlace(id: content.placeIds[0])
-            await MainActor.run {
-                self.placeName = place.name
-            }
-        } catch {
-            await handlePlaceLoadError(error)
-        }
-        isLoadingPlace = false
-    }
-    
-    private func handlePlaceLoadError(_ error: Error) async {
-        await MainActor.run {
-            // Update state for error display
-            print("🔴 Critical place load error: \(error.localizedDescription)")
-        }
-    }
-    
-    func cleanup() {
-        // No longer needed as video management is handled by VideoPlayerManager
+                    //Pause if the video is not the currently playing video
+                    if appStore.currentContentItem?.videoUrl != content.videoUrl {
+                        appStore.videoManager.pause()
+                    }
+                }
+                .onDisappear {
+                    appStore.videoManager.pause()
+                }
     }
 }
 
