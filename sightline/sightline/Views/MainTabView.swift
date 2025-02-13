@@ -88,10 +88,10 @@ struct MainTabView: View {
                 }
             }
 
-            // Pause video if leaving feed (remains, but uses appStore)
+            // Switch to Feed when requested
             .onChange(of: selectedTab) { oldValue, newValue in
                 if oldValue == 1 && newValue != 1 {
-                    appStore.videoManager.pause() // Use the new pause method
+                    appStore.pauseCurrentVideo() // Use the explicit method from AppStore
                 }
             }
 

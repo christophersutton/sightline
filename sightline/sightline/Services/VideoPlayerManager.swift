@@ -7,93 +7,103 @@ import AVKit
 import Foundation
 
 @MainActor
-final class VideoPlayerManager: ObservableObject {
-    @Published private(set) var currentPlayer: AVPlayer?
+class VideoPlayerManager: ObservableObject {
+    @Published private(set) var currentPlayer: AVQueuePlayer?
     @Published private(set) var isLoading = false
     @Published private(set) var error: Error?
-
+    
+    private var preloadedPlayers: [String: AVQueuePlayer] = [:]
     private var playerLooper: AVPlayerLooper?
     private var cancellables = Set<AnyCancellable>()
+    
+    private let maxPreloadedPlayers = 3
+    
+    private var currentlyPlayingUrl: String?
+    
+    func activatePlayer(for url: String) async {
+        print("📺 Activating player for URL: \(url)")
+        
+        // Always cleanup first
+        await cleanup()
+        
+        do {
+            isLoading = true
+            error = nil
+            currentlyPlayingUrl = url
+            
+            let player = try await preparePlayer(for: url)
+            
+            // Double check we still want this URL
+            guard currentlyPlayingUrl == url else {
+                print("📺 URL changed during preparation, cancelling")
+                return
+            }
+            
+            self.currentPlayer = player
+            player.play()
+            print("📺 Started playback for URL: \(url)")
+            
+        } catch {
+            print("❌ Failed to activate player: \(error)")
+            self.error = error
+            currentlyPlayingUrl = nil
+        }
+        
+        isLoading = false
+    }
+    
+    func pause() {
+        currentPlayer?.pause()
+    }
+    
+    func cleanup() async {
+        print("📺 Cleaning up player")
+        currentPlayer?.pause()
+        currentPlayer = nil
+        playerLooper = nil
+        currentlyPlayingUrl = nil
+        preloadedPlayers.removeAll()
+    }
+    
+    private func preparePlayer(for url: String) async throws -> AVQueuePlayer {
+        print("📺 Preparing player for URL: \(url)")
+        let downloadUrl = try await getDownloadURL(for: url)
+        
+        let asset = AVURLAsset(url: downloadUrl)
+        guard try await asset.load(.isPlayable) else {
+            throw VideoError.notPlayable
+        }
+        
+        let item = AVPlayerItem(asset: asset)
+        let player = AVQueuePlayer(playerItem: item)
+        playerLooper = AVPlayerLooper(player: player, templateItem: item)
+        
+        try await waitUntilPlayerItemReady(item)
+        return player
+    }
+    
+    private func cleanupDistantPlayers() {
+        // Keep only the most recent players up to maxPreloadedPlayers
+        if preloadedPlayers.count > maxPreloadedPlayers {
+            let sortedUrls = Array(preloadedPlayers.keys).sorted()
+            let urlsToRemove = sortedUrls.prefix(preloadedPlayers.count - maxPreloadedPlayers)
+            for url in urlsToRemove {
+                preloadedPlayers.removeValue(forKey: url)
+            }
+        }
+    }
+    
+    enum VideoError: Error {
+        case notPlayable
+    }
 
     // Dictionary to store preloaded players by URL
-    private var preloadedPlayers: [String: AVQueuePlayer] = [:]
-    // Queue to track the order of preloaded videos for caching purposes
     private var preloadedVideosQueue: [String] = []
     // Maximum number of videos to cache during the session
     private let maxCacheSize = 10
 
     private var preloadTasks: [String: Task<Void, Never>] = [:]
     private let preloadLimit = 2 // Number of videos to preload in each direction
-
-    private var currentlyPlayingUrl: String?
-
-    // This method now ONLY prepares the player, it doesn't play.
-    func preparePlayer(for url: String) async {
-        // If this video is already prepared, skip.
-        if preloadedPlayers[url] != nil {
-            print("🔄 Video \(url) already prepared. Skipping.")
-            return
-        }
-
-        isLoading = true
-        error = nil
-
-        do {
-            let downloadUrl = try await getDownloadURL(for: url)
-            let asset = AVURLAsset(url: downloadUrl)
-
-            guard try await asset.load(.isPlayable) else {
-                throw NSError(domain: "VideoPlayerManager", code: -1,
-                              userInfo: [NSLocalizedDescriptionKey: "Video is not playable"])
-            }
-
-            let item = AVPlayerItem(asset: asset)
-            let player = AVQueuePlayer(playerItem: item)
-            playerLooper = AVPlayerLooper(player: player, templateItem: item)
-
-            // Wait until the player item is ready before storing
-            try await waitUntilPlayerItemReady(item)
-
-            preloadedPlayers[url] = player // Store the prepared player
-            isLoading = false
-            print("✅ Prepared player for URL: \(url)")
-
-        } catch {
-            self.error = error
-            self.isLoading = false
-            print("❌ Error preparing player for URL: \(url), Error: \(error)")
-        }
-    }
-
-    // This method now ALWAYS plays (or prepares and plays).
-    func play(url: String) {
-        print("🎬 Starting playback for URL: \(url)")
-
-        if let player = preloadedPlayers[url] {
-            currentPlayer = player
-            currentlyPlayingUrl = url
-            player.seek(to: .zero) // Ensure it starts from the beginning
-            player.play()
-            print("✅ Playing from preloaded player")
-        } else {
-            print("⚠️ No preloaded player, preparing and playing")
-            // Prepare and play directly
-            Task {
-                await preparePlayer(for: url) // preparePlayer now creates AND stores the player
-                if let player = preloadedPlayers[url] {
-                    currentPlayer = player
-                    currentlyPlayingUrl = url
-                    player.play() // Play immediately after preparing
-                }
-            }
-        }
-    }
-
-    func pause() {
-        currentPlayer?.pause()
-        print("⏸️ Paused playback")
-    }
-
 
     func preloadVideos(for urls: [String], at index: Int) {
         // Cancel any existing preload tasks that are no longer needed
@@ -107,7 +117,12 @@ final class VideoPlayerManager: ObservableObject {
             let url = urls[i]
             if preloadedPlayers[url] == nil && preloadTasks[url] == nil {
                 preloadTasks[url] = Task {
-                    await preparePlayer(for: url) // Use preparePlayer, not play
+                    do {
+                        let player = try await preparePlayer(for: url)
+                        preloadedPlayers[url] = player
+                    } catch {
+                        print("Failed to preload video for url: \(url), error: \(error)")
+                    }
                 }
             }
         }
@@ -139,27 +154,6 @@ final class VideoPlayerManager: ObservableObject {
     private func getDownloadURL(for gsUrl: String) async throws -> URL {
         let storageRef = Storage.storage().reference(forURL: gsUrl)
         return try await storageRef.downloadURL()
-    }
-
-    func cleanup()  {
-        currentPlayer?.pause()
-        playerLooper = nil
-        currentPlayer = nil
-        currentlyPlayingUrl = nil
-        error = nil
-        isLoading = false // Reset loading state
-        cancellables.removeAll()
-    }
-
-    /// Clears the entire video cache. Call this on app close to release all cached videos.
-    func clearCache() {
-        preloadedPlayers.forEach { (_, player) in
-            player.pause()
-        }
-        preloadedPlayers.removeAll()
-        preloadedVideosQueue.removeAll()
-        preloadTasks.removeAll()
-        print("Cleared video cache")
     }
 }
 

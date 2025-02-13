@@ -39,27 +39,24 @@ class AppStore: Store {
 
       @Published var currentIndex: Int = 0 {
           didSet {
-            //Prevent out of bounds
             if contentItems.indices.contains(currentIndex) {
-              currentContentItem = contentItems[currentIndex]
+                Task {
+                    await setCurrentContent(contentItems[currentIndex])
+                }
             }
           }
       }
 
       // KEY CHANGE:  Publish the *current Content item*
-      @Published var currentContentItem: Content? = nil {
-          didSet {
-              if let videoUrl = currentContentItem?.videoUrl {
-                  videoManager.play(url: videoUrl) // ALWAYS play; manager handles preparation
-              } else {
-                  videoManager.pause() // Pause if no current item
-              }
-          }
-      }
+      @Published var currentContentItem: Content?
 
     private var cancellables = Set<AnyCancellable>() // Manage Combine subscriptions
 
-    let videoManager = VideoPlayerManager()
+    let videoManager: VideoPlayerManager
+
+    init() {
+        self.videoManager = VideoPlayerManager() // This is now safe since AppStore is @MainActor
+    }
 
     func loadUnlockedNeighborhoods() async {
         do {
@@ -117,12 +114,9 @@ class AppStore: Store {
               contentItems = content
               places.merge(placeMap) { (_, new) in new }
 
-              // KEY CHANGE: Set currentContentItem *after* loading data
-              currentContentItem = contentItems.first
-               // Preload *after* setting the current item
+              // Explicitly set first content
               if let firstContent = contentItems.first {
-                  let urls = contentItems.map { $0.videoUrl }
-                  videoManager.preloadVideos(for: urls, at: 0)
+                  await setCurrentContent(firstContent)
               }
 
           } catch {
@@ -132,4 +126,27 @@ class AppStore: Store {
               currentContentItem = nil // Clear on error
           }
       }
+
+    func setCurrentContent(_ content: Content?) async {
+        print("🎬 Setting current content: \(content?.id ?? "nil")")
+        
+        // Only proceed if content is different
+        guard content?.id != currentContentItem?.id else {
+            print("🎬 Content already current, skipping")
+            return
+        }
+        
+        currentContentItem = content
+        
+        if let videoUrl = content?.videoUrl {
+            print("🎬 Activating video: \(videoUrl)")
+            await videoManager.activatePlayer(for: videoUrl)
+        } else {
+            await videoManager.cleanup()
+        }
+    }
+    
+    func pauseCurrentVideo() {
+        videoManager.pause()
+    }
 }
