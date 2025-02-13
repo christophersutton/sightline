@@ -1,174 +1,285 @@
 <Plan>
-The issue is that when switching categories or neighborhoods, the `currentIndex` in `ContentFeedViewModel` is not reset to 0. This causes the `VerticalFeedView` to attempt to display a content item at the previous index, which might be out of bounds or not the intended starting point for the new category/neighborhood. The smallest and most effective fix is to reset `currentIndex` to 0 whenever `selectedNeighborhood` or `selectedCategory` changes. Since we already have a `didSet` observer on selectedNeighborhood, we can just add one for selectedCategory.
-
+1. We want the feed (parent) to be responsible for pausing/resuming videos when swiping.
+2. We'll remove the auto-play call in ContentItemView’s loadPlayer(), so it won’t remain paused once we come back.
+3. In ContentFeedView’s onIndexChanged, we’ll pause the oldIndex video and play the newIndex video, ensuring a previously viewed video resumes playback.
 </Plan>
 
-<file path="/Users/chrissutton/dev/sightline/sightline/sightline/Views/ContentFeedView/ContentFeedViewModel.swift" action="rewrite">
+<file path="sightline/sightline/Views/ContentFeed/ContentFeedView.swift" action="rewrite">
   <change>
-    <description>Add didSet to selectedCategory to reset currentIndex to 0</description>
+    <description>Pause old video and play new video on swipe (back or forward). Force refresh by .id(...) as before.</description>
     <content>
 ===
 import SwiftUI
-import FirebaseFirestore
-import FirebaseAuth
-import Combine
+import UIKit
 
-enum NavigationDestination: Hashable {
-    case placeDetail(placeId: String, initialContentId: String)
+struct ContentFeedView: View {
+    @EnvironmentObject var appState: AppState
+    @EnvironmentObject var appStore: AppStore
+
+    @State private var showingNeighborhoods = false
+    @State private var showingCategories = false
+    @State private var selectedPlaceId: String? = nil
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color.black.ignoresSafeArea()
+
+            contentDisplay
+                .zIndex(0)
+
+            menuBar
+                .zIndex(2)
+        }
+        .sheet(item: Binding(
+            get: { selectedPlaceId.map { PlaceDetailPresentation(placeId: $0) } },
+            set: { presentation in selectedPlaceId = presentation?.placeId }
+        )) { presentation in
+            PlaceDetailView(placeId: presentation.placeId)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackgroundInteraction(.enabled)
+        }
+        .task {
+            await appStore.loadUnlockedNeighborhoods()
+        }
+    }
+
+    @ViewBuilder
+    private var contentDisplay: some View {
+        if appStore.unlockedNeighborhoods.isEmpty {
+            EmptyNeighborhoodState()
+        } else if appStore.contentItems.isEmpty {
+            Text("No content available")
+                .foregroundColor(.white)
+        } else {
+            feedView
+        }
+    }
+
+    private var feedView: some View {
+        VerticalFeedView(
+            currentIndex: $appStore.currentIndex,
+            itemCount: appStore.contentItems.count,
+            onIndexChanged: { oldIndex, newIndex in
+                // 1) Pause the old video
+                if oldIndex < appStore.contentItems.count {
+                    let oldUrl = appStore.contentItems[oldIndex].videoUrl
+                    appStore.videoManager.playerFor(url: oldUrl)?.pause()
+                }
+                
+                // 2) Play the new video
+                if newIndex < appStore.contentItems.count {
+                    let newUrl = appStore.contentItems[newIndex].videoUrl
+                    appStore.videoManager.playerFor(url: newUrl)?.play()
+                }
+                
+                // Update current index
+                appStore.currentIndex = newIndex
+                
+                // Optionally preload more videos around newIndex
+                let videoURLs = appStore.contentItems.map { $0.videoUrl }
+                appStore.videoManager.preloadVideos(for: videoURLs, at: newIndex)
+            }
+        ) { index in
+            if index < appStore.contentItems.count {
+                ContentItemView(content: appStore.contentItems[index])
+                    .onTapGesture {
+                        let placeIds = appStore.contentItems[index].placeIds
+                        if !placeIds.isEmpty {
+                            selectedPlaceId = placeIds[0]
+                        }
+                    }
+            } else {
+                Color.black
+            }
+        }
+        // Force refresh if category, neighborhood, or items changed:
+        .id("\(appStore.selectedNeighborhood?.id ?? "none")_\(appStore.selectedCategory.rawValue)_\(appStore.contentItems.count)")
+        .ignoresSafeArea()
+    }
+  
+    private var menuBar: some View {
+        HStack(alignment: .top) {
+            NeighborhoodSelectorView(
+                selectedNeighborhood: $appStore.selectedNeighborhood,
+                isExpanded: $showingNeighborhoods,
+                onExploreMore: { appState.shouldSwitchToDiscover = true },
+                onNeighborhoodSelected: { Task { await appStore.loadContent() } }
+            )
+
+            Spacer()
+
+            if let neighborhoodId = appStore.selectedNeighborhood?.id {
+                CategorySelectorView(
+                    selectedCategory: $appStore.selectedCategory,
+                    isExpanded: $showingCategories,
+                    onCategorySelected: { Task { await appStore.loadContent() } }
+                )
+                .id(neighborhoodId)
+            } else {
+                Text("Select a neighborhood").foregroundColor(.white)
+            }
+        }
+        .padding(.top, 24)
+        .padding(.horizontal, 16)
+    }
 }
 
-@MainActor
-final class ContentFeedViewModel: ObservableObject {
-    @Published var unlockedNeighborhoods: [Neighborhood] = []
-    @Published var selectedNeighborhood: Neighborhood? {
-        didSet {
-            if selectedNeighborhood != oldValue {
-                Task {
-                    await loadContent()
-                }
+struct LoadingState: View {
+    var body: some View {
+        GeometryReader { geometry in
+            VStack(spacing: 16) {
+                ProgressView()
+                    .scaleEffect(1.5)
+                    .tint(.white)
+                
+                Text("Loading...")
+                    .font(.custom("Baskerville", size: 18))
+                    .foregroundColor(.white.opacity(0.8))
             }
+            .frame(width: geometry.size.width, height: geometry.size.height)
         }
     }
-    @Published var selectedCategory: FilterCategory = .restaurant {
-        didSet {
-            if selectedCategory != oldValue {
-                currentIndex = 0 // Reset index when category changes
-            }
-        }
-    }
-    @Published var availableCategories: [FilterCategory] = []
-    @Published var contentItems: [Content] = []
-    
-    // When currentIndex changes we now start an async task.
-    @Published var currentIndex: Int = 0 {
-        didSet {
-            Task {
-                await updateActiveVideo()
-            }
-        }
-    }
-    @Published var isLoading = false
-    @Published var places: [String: Place] = [:] // Cache of places by ID
-    
-    @Published private(set) var hasLoadedNeighborhoods = false
-    
-    let videoManager = VideoPlayerManager()
-    private let services = ServiceContainer.shared
+}
 
-    /// This async function centralizes the video activation logic.
-    func updateActiveVideo() async {
-        guard !contentItems.isEmpty,
-              currentIndex >= 0,
-              currentIndex < contentItems.count
-        else { return }
-        
-        let urls = contentItems.map { $0.videoUrl }
-        videoManager.preloadVideos(for: urls, at: currentIndex)
-        
-        await videoManager.activatePlayerAsync(for: contentItems[currentIndex].videoUrl)
-    }
-    
-    func loadUnlockedNeighborhoods() async {
-        DispatchQueue.main.async {
-            self.isLoading = true
-            self.hasLoadedNeighborhoods = false
-        }
-        
-        do {
-            let neighborhoods = try await services.neighborhood.fetchUnlockedNeighborhoods()
-            
-            DispatchQueue.main.async {
-                self.unlockedNeighborhoods = neighborhoods
-                // Only set selectedNeighborhood if it's nil or not in the list
-                if self.selectedNeighborhood == nil || 
-                   !neighborhoods.contains(where: { $0.id == self.selectedNeighborhood?.id }) {
-                    self.selectedNeighborhood = neighborhoods.first
-                }
-                self.hasLoadedNeighborhoods = true
-                self.isLoading = false
-            }
-        } catch {
-            print("Error loading neighborhoods: \(error)")
-            DispatchQueue.main.async {
-                self.hasLoadedNeighborhoods = true
-                self.isLoading = false
-            }
-        }
-    }
-    
-    private func loadAvailableCategories() async {
-        guard let neighborhood = selectedNeighborhood else { return }
-        
-        do {
-            let categories = try await services.neighborhood.fetchAvailableCategories(
-                neighborhoodId: neighborhood.id!
-            )
-            self.availableCategories = categories
-            
-            if !categories.contains(selectedCategory) && !categories.isEmpty {
-                selectedCategory = categories[0]
-                await loadContent()
-            }
-        } catch {
-            print("❌ Error loading available categories: \(error)")
-        }
-    }
+struct PlaceDetailPresentation: Identifiable {
+    let id = UUID()
+    let placeId: String
+}
+===
+    </content>
+  </change>
+</file>
 
-    func loadContent() async {
-        guard let neighborhood = selectedNeighborhood else {
-            print("❌ No neighborhood selected")
-            return
-        }
-        
-        isLoading = true
-        do {
-            await loadAvailableCategories()
-            
-            print("🔄 Loading content for neighborhood: \(neighborhood.name), category: \(selectedCategory.rawValue)")
-            
-            let content = try await services.firestore.fetchContentByCategory(
-                category: selectedCategory,
-                neighborhoodId: neighborhood.id!
-            )
-            
-            // Fetch places for all content items
-            var placeMap: [String: Place] = [:]
-            for item in content {
-                for placeId in item.placeIds {
-                    do {
-                        let place = try await services.firestore.fetchPlace(id: placeId)
-                        placeMap[placeId] = place
-                    } catch {
-                        print("Error loading place \(placeId): \(error)")
-                    }
-                }
-            }
+<file path="sightline/sightline/Views/ContentFeed/ContentItemView.swift" action="rewrite">
+  <change>
+    <description>Remove auto-play from ContentItemView, letting the parent code handle playback.</description>
+    <content>
+===
+import SwiftUI
+import AVKit
+import FirebaseStorage
 
-            self.contentItems = content
-            self.places = placeMap
-            print("✅ Loaded \(content.count) content items")
-            
-            isLoading = false
-            
-            // Play the first video after loading.
-            if let firstContent = content.first {
-                let urls = content.map { $0.videoUrl }
-                // Preload videos, setting currentIndex to 0
-                videoManager.preloadVideos(for: urls, at: 0)
-                await videoManager.activatePlayerAsync(for: firstContent.videoUrl)
+struct ContentItemView: View {
+    @EnvironmentObject var appStore: AppStore
+    let content: Content
+    @State private var player: AVQueuePlayer?
+    @State private var isLoading = true
+    @State private var error: Error?
+
+    var body: some View {
+        GeometryReader { _ in
+            ZStack {
+                if let player = player {
+                    VideoPlayer(player: player)
+                        .edgesIgnoringSafeArea(.all)
+                } else if isLoading {
+                    LoadingView()
+                } else {
+                    ErrorView()
+                }
+                ContentOverlay(content: content)
             }
-        } catch {
-            print("❌ Error loading content: \(error)")
-            isLoading = false
         }
+        .onAppear {
+            // Just load or fetch the player, do NOT auto-play
+            loadPlayer()
+        }
+        // No need to pause onDisappear if feed is managing it
     }
     
-    // Called when category changes
-    func categorySelected(_ category: FilterCategory) {
-        selectedCategory = category
-        self.currentIndex = 0  // Will trigger updateActiveVideo automatically.
+    private func loadPlayer() {
+        guard player == nil else { return }
         Task {
-            await loadContent()
+            do {
+                let newPlayer = try await appStore.videoManager.fetchPlayer(for: content.videoUrl)
+                await MainActor.run {
+                    player = newPlayer
+                    // Don’t automatically play; parent feed controls it
+                    isLoading = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.error = error
+                    isLoading = false
+                }
+            }
+        }
+    }
+}
+
+private extension EnvironmentValues {
+    var safeAreaInsets: EdgeInsets {
+        (UIApplication.shared.windows.first?.safeAreaInsets ?? .zero).insets
+    }
+}
+
+private extension UIEdgeInsets {
+    var insets: EdgeInsets {
+        EdgeInsets(top: top, leading: left, bottom: bottom, trailing: right)
+    }
+}
+
+struct ErrorView: View {
+    var body: some View {
+        VStack {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.largeTitle)
+                .foregroundColor(.yellow)
+            Text("Failed to load video")
+                .foregroundColor(.white)
+        }
+    }
+}
+
+struct LoadingView: View {
+    var body: some View {
+        Color.black
+        ProgressView()
+            .scaleEffect(1.5)
+    }
+}
+
+struct ContentOverlay: View {
+    let content: Content
+    @EnvironmentObject var appStore: AppStore
+    
+    var body: some View {
+        VStack {
+            Spacer()
+            VStack(spacing: 8) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(content.caption)
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.leading)
+                        
+                        if let placeId = content.placeIds.first {
+                            NavigationLink(value: AppState.NavigationDestination.placeDetail(placeId: placeId, initialContentId: content.id)) {
+                                Text(appStore.places[placeId]?.name ?? "Loading place...")
+                                    .font(.subheadline)
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(.ultraThinMaterial)
+                                    .cornerRadius(16)
+                            }
+                        }
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 120)
+            }
+            .background(
+                LinearGradient(
+                    gradient: Gradient(colors: [.clear, .black.opacity(0.3)]),
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .padding(.top, -100)
+            )
         }
     }
 }

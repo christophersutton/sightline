@@ -33,40 +33,60 @@ struct ContentFeedView: View {
         }
     }
 
-    // Subview for displaying the main content (loading, empty, or feed)
     @ViewBuilder
     private var contentDisplay: some View {
         if appStore.unlockedNeighborhoods.isEmpty {
             EmptyNeighborhoodState()
         } else if appStore.contentItems.isEmpty {
-            Text("No content available").foregroundColor(.white)
+            Text("No content available")
+                .foregroundColor(.white)
         } else {
             feedView
         }
     }
 
-  private var feedView: some View {
-      VerticalFeedView(
-          currentIndex: $appStore.currentIndex,
-          itemCount: appStore.contentItems.count,
-          onIndexChanged: { index in
-              // Optionally, preload next items here.
-          }
-      ) { index in
-          if index < appStore.contentItems.count {
-              ContentItemView(content: appStore.contentItems[index])
-                  .onTapGesture {
-                      let placeIds = appStore.contentItems[index].placeIds
-                      if !placeIds.isEmpty { selectedPlaceId = placeIds[0] }
-                  }
-          } else {
-              Color.black
-          }
-      }
-      .ignoresSafeArea()
-  }
+    private var feedView: some View {
+        VerticalFeedView(
+            currentIndex: $appStore.currentIndex,
+            itemCount: appStore.contentItems.count,
+            onIndexChanged: { oldIndex, newIndex in
+                // 1) Pause the old video
+                if oldIndex < appStore.contentItems.count {
+                    let oldUrl = appStore.contentItems[oldIndex].videoUrl
+                    appStore.videoManager.playerFor(url: oldUrl)?.pause()
+                }
+                
+                // 2) Play the new video
+                if newIndex < appStore.contentItems.count {
+                    let newUrl = appStore.contentItems[newIndex].videoUrl
+                    appStore.videoManager.playerFor(url: newUrl)?.play()
+                }
+                
+                // Update current index
+                appStore.currentIndex = newIndex
+                
+                // Optionally preload more videos around newIndex
+                let videoURLs = appStore.contentItems.map { $0.videoUrl }
+                appStore.videoManager.preloadVideos(for: videoURLs, at: newIndex)
+            }
+        ) { index in
+            if index < appStore.contentItems.count {
+                ContentItemView(content: appStore.contentItems[index])
+                    .onTapGesture {
+                        let placeIds = appStore.contentItems[index].placeIds
+                        if !placeIds.isEmpty {
+                            selectedPlaceId = placeIds[0]
+                        }
+                    }
+            } else {
+                Color.black
+            }
+        }
+        // Force refresh if category, neighborhood, or items changed:
+        .id("\(appStore.selectedNeighborhood?.id ?? "none")_\(appStore.selectedCategory.rawValue)_\(appStore.contentItems.count)")
+        .ignoresSafeArea()
+    }
   
-    // Subview for the top menu bar (neighborhood and category selectors)
     private var menuBar: some View {
         HStack(alignment: .top) {
             NeighborhoodSelectorView(
@@ -110,8 +130,6 @@ struct LoadingState: View {
         }
     }
 }
-
-
 
 struct PlaceDetailPresentation: Identifiable {
     let id = UUID()

@@ -1,4 +1,3 @@
-// sightline/sightline/Views/ContentFeed/ContentItemView.swift
 import SwiftUI
 import AVKit
 import FirebaseStorage
@@ -11,7 +10,7 @@ struct ContentItemView: View {
     @State private var error: Error?
 
     var body: some View {
-        GeometryReader { geo in
+        GeometryReader { _ in
             ZStack {
                 if let player = player {
                     VideoPlayer(player: player)
@@ -24,40 +23,33 @@ struct ContentItemView: View {
                 ContentOverlay(content: content)
             }
         }
-        .onAppear { loadPlayer() }
-        .onDisappear { player?.pause() }
+        .onAppear {
+            // Just load or fetch the player, do NOT auto-play
+            loadPlayer()
+        }
+        // No need to pause onDisappear if feed is managing it
     }
     
-  private func loadPlayer() {
-      guard player == nil else { return }
-      Task {
-          do {
-              let newPlayer = try await appStore.videoManager.fetchPlayer(for: content.videoUrl)
-              await MainActor.run {
-                  player = newPlayer
-                  newPlayer.play()
-                  isLoading = false
-              }
-          } catch {
-              await MainActor.run {
-                  self.error = error
-                  isLoading = false
-              }
-          }
-      }
-  }
-    
-    private func waitUntilReady(_ item: AVPlayerItem) async throws {
-        while item.status != .readyToPlay {
-            if item.status == .failed {
-                throw item.error ?? NSError(domain: "ContentItemView", code: -1, userInfo: nil)
+    private func loadPlayer() {
+        guard player == nil else { return }
+        Task {
+            do {
+                let newPlayer = try await appStore.videoManager.fetchPlayer(for: content.videoUrl)
+                await MainActor.run {
+                    player = newPlayer
+                    // Don’t automatically play; parent feed controls it
+                    isLoading = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.error = error
+                    isLoading = false
+                }
             }
-            try await Task.sleep(nanoseconds: 50_000_000)
         }
     }
 }
 
-// Add this extension to get safe area insets in SwiftUI
 private extension EnvironmentValues {
     var safeAreaInsets: EdgeInsets {
         (UIApplication.shared.windows.first?.safeAreaInsets ?? .zero).insets
@@ -132,4 +124,4 @@ struct ContentOverlay: View {
             )
         }
     }
-} 
+}
