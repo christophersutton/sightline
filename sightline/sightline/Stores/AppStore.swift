@@ -40,6 +40,8 @@ class AppStore: Store {
     // A version integer that increments whenever new content is loaded.
     @Published var feedVersion: Int = 0
     
+    @Published var isLoadingContent: Bool = false
+    
     func loadUnlockedNeighborhoods() async {
         do {
             let neighborhoods = try await services.neighborhood.fetchUnlockedNeighborhoods()
@@ -68,6 +70,9 @@ class AppStore: Store {
     }
     
     func loadContent() async {
+        isLoadingContent = true
+        defer { isLoadingContent = false }
+        
         // 1) Pause the current video if we have a valid index
         if currentIndex >= 0, currentIndex < contentItems.count {
             let oldUrl = contentItems[currentIndex].videoUrl

@@ -40,6 +40,13 @@ struct ContentFeedView: View {
     private var contentDisplay: some View {
         if appStore.unlockedNeighborhoods.isEmpty {
             EmptyNeighborhoodState()
+        } else if appStore.isLoadingContent {
+            VStack {
+                Spacer()
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                Spacer()
+            }
         } else if appStore.contentItems.isEmpty {
             Text("No content available")
                 .foregroundColor(.white)
@@ -60,7 +67,7 @@ struct ContentFeedView: View {
                     appStore.videoManager.pause(url: oldVideoUrl)
                 }
                 
-                // 2) Update the store’s currentIndex
+                // 2) Update the store's currentIndex
                 appStore.currentIndex = newIndex
             }
         ) { index in
