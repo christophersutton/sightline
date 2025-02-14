@@ -12,13 +12,23 @@ class VideoCaptureController: NSObject, ObservableObject {
     @Published var processingState: ProcessingState = .notStarted
     
     var captureSession: AVCaptureSession?
-    private var videoOutput: AVCaptureMovieFileOutput?
+    private var assetWriter: AVAssetWriter?
+    private var assetWriterInput: AVAssetWriterInput?
+    private var audioInput: AVAssetWriterInput?
+    private var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
+    private var videoOutput: AVCaptureVideoDataOutput?
+    private var audioOutput: AVCaptureAudioDataOutput?
+    private var currentVideoPath: URL?
     private var previewLayer: AVCaptureVideoPreviewLayer?
     private let reviewService = VideoReviewService()
     let placeId: String
     private let maxRecordingDuration: TimeInterval = 60 // 1 minute max
     private var currentCamera: AVCaptureDevice.Position = .back
     private var statusListener: ListenerRegistration?
+    
+    private let videoQueue = DispatchQueue(label: "videoQueue")
+    private let audioQueue = DispatchQueue(label: "audioQueue")
+    private var sessionStarted = false
     
     init(placeId: String) {
         self.placeId = placeId
@@ -66,11 +76,20 @@ class VideoCaptureController: NSObject, ObservableObject {
         }
         session.addInput(audioInput)
         
-        // Configure video output
-        let movieOutput = AVCaptureMovieFileOutput()
-        if session.canAddOutput(movieOutput) {
-            session.addOutput(movieOutput)
-            self.videoOutput = movieOutput
+        // Configure video output for AVAssetWriter
+        let videoOutput = AVCaptureVideoDataOutput()
+        videoOutput.setSampleBufferDelegate(self, queue: DispatchQueue(label: "videoQueue"))
+        if session.canAddOutput(videoOutput) {
+            session.addOutput(videoOutput)
+            self.videoOutput = videoOutput
+        }
+        
+        // Configure audio output for AVAssetWriter
+        let audioOutput = AVCaptureAudioDataOutput()
+        audioOutput.setSampleBufferDelegate(self, queue: DispatchQueue(label: "audioQueue"))
+        if session.canAddOutput(audioOutput) {
+            session.addOutput(audioOutput)
+            self.audioOutput = audioOutput
         }
         
         self.captureSession = session
@@ -83,21 +102,87 @@ class VideoCaptureController: NSObject, ObservableObject {
     }
     
     func startRecording() {
-        guard let output = videoOutput else { return }
-        
         let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
-        let fileUrl = paths[0].appendingPathComponent("review_video.mp4")
+        currentVideoPath = paths[0].appendingPathComponent("review_video.mp4")
         
-        try? FileManager.default.removeItem(at: fileUrl)
+        guard let videoPath = currentVideoPath else { return }
         
-        // Set max duration
-        output.maxRecordedDuration = CMTime(seconds: maxRecordingDuration, preferredTimescale: 600)
-        output.startRecording(to: fileUrl, recordingDelegate: self)
-        isRecording = true
+        // Remove existing file if needed
+        try? FileManager.default.removeItem(at: videoPath)
+        
+        do {
+            assetWriter = try AVAssetWriter(url: videoPath, fileType: .mp4)
+            
+            // Configure video input
+            let videoSettings: [String: Any] = [
+                AVVideoCodecKey: AVVideoCodecType.h264,
+                AVVideoWidthKey: 1280, // Reduced from 1920 for better performance
+                AVVideoHeightKey: 720,  // Reduced from 1080
+                AVVideoCompressionPropertiesKey: [
+                    AVVideoAverageBitRateKey: 2000000, // 2 Mbps
+                    AVVideoMaxKeyFrameIntervalKey: 30,
+                    AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
+                ]
+            ]
+            
+            assetWriterInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+            assetWriterInput?.expectsMediaDataInRealTime = true
+            
+            // Configure audio input
+            let audioSettings: [String: Any] = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: 44100,
+                AVNumberOfChannelsKey: 2,
+                AVEncoderBitRateKey: 128000 // 128 kbps
+            ]
+            
+            audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+            audioInput?.expectsMediaDataInRealTime = true
+            
+            if let assetWriter = assetWriter,
+               let videoInput = assetWriterInput,
+               let audioInput = audioInput {
+                if assetWriter.canAdd(videoInput) {
+                    assetWriter.add(videoInput)
+                }
+                if assetWriter.canAdd(audioInput) {
+                    assetWriter.add(audioInput)
+                }
+                
+                sessionStarted = false
+                assetWriter.startWriting()
+            }
+            
+            isRecording = true
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
     
     func stopRecording() {
-        videoOutput?.stopRecording()
+        isRecording = false
+        
+        // Set state to uploading before starting the upload
+        processingState = .uploading
+        
+        assetWriter?.finishWriting { [weak self] in
+            guard let self = self,
+                  let videoPath = self.currentVideoPath else { return }
+            
+            // Upload the video
+            Task {
+                do {
+                    let reviewId = try await self.reviewService.uploadReview(videoURL: videoPath, placeId: self.placeId)
+                    await MainActor.run {
+                        self.listenToProcessingUpdates(reviewId: reviewId)
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.processingState = .failed
+                    }
+                }
+            }
+        }
     }
     
     func switchCamera() {
@@ -156,30 +241,31 @@ class VideoCaptureController: NSObject, ObservableObject {
     }
 }
 
-extension VideoCaptureController: AVCaptureFileOutputRecordingDelegate {
-    func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {
-        isRecording = false
+extension VideoCaptureController: AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureAudioDataOutputSampleBufferDelegate {
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        guard isRecording,
+              let assetWriter = assetWriter else { return }
         
-        if let error = error {
-            self.error = error.localizedDescription
-            return
+        // Start the session with the first video sample
+        if !sessionStarted && output == videoOutput {
+            sessionStarted = true
+            let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+            assetWriter.startSession(atSourceTime: timestamp)
         }
         
-        // Set state to uploading before starting the upload
-        processingState = .uploading
+        // Only proceed if session has started
+        guard sessionStarted else { return }
         
-        Task {
-            do {
-                let reviewId = try await reviewService.uploadReview(videoURL: outputFileURL, placeId: placeId)
-                
-                // Start listening for processing updates
-                listenToProcessingUpdates(reviewId: reviewId)
-                
-            } catch {
-                await MainActor.run {
-                    processingState = .failed
-                }
-            }
+        if output == videoOutput,
+           let input = assetWriterInput,
+           input.isReadyForMoreMediaData {
+            input.append(sampleBuffer)
+        }
+        
+        if output == audioOutput,
+           let input = audioInput,
+           input.isReadyForMoreMediaData {
+            input.append(sampleBuffer)
         }
     }
 }

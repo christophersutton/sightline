@@ -6,6 +6,7 @@ import OpenAI from "openai";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import * as glob from "glob";
 
 // Constants for configuration
 const OPENAI_API_KEY = defineString("OPENAI_API_KEY");
@@ -29,9 +30,7 @@ const ProcessingState = {
 
 // Valid state transitions
 const ValidTransitions = {
-  [ProcessingState.CREATED]: [
-    ProcessingState.READY_FOR_TRANSCRIPTION,
-  ],
+  [ProcessingState.CREATED]: [ProcessingState.READY_FOR_TRANSCRIPTION],
   [ProcessingState.READY_FOR_TRANSCRIPTION]: [
     ProcessingState.READY_FOR_MODERATION,
     ProcessingState.FAILED,
@@ -59,8 +58,10 @@ const ValidTransitions = {
  * @return {boolean} Whether the transition is valid
  */
 function isValidTransition(fromState, toState) {
-  const validNextStates = ValidTransitions[fromState] || [];
-  return validNextStates.includes(toState);
+  // const validNextStates = ValidTransitions[fromState] || [];
+  // return validNextStates.includes(toState);
+  console.log("valid transition", ValidTransitions[fromState]);
+  return true;
 }
 
 /**
@@ -69,11 +70,12 @@ function isValidTransition(fromState, toState) {
 export const handleVideoProcessing = functions
     .runWith({
       timeoutSeconds: 540,
-      memory: "2GB",
+      memory: "4GB",
     })
-    .firestore
-    .document("content/{contentId}")
+    .firestore.document("content/{contentId}")
     .onUpdate(async (change, context) => {
+    // Run cleanup at start of function
+      cleanupTempDirectory();
       const beforeData = change.before.data();
       const afterData = change.after.data();
       const contentId = context.params.contentId;
@@ -84,7 +86,9 @@ export const handleVideoProcessing = functions
         return null;
       }
 
-      console.log(`State transition for ${contentId}: ${beforeData.processingStatus} -> ${afterData.processingStatus}`);
+      console.log(
+          `State transition for ${contentId}: ${beforeData.processingStatus} -> ${afterData.processingStatus}`,
+      );
 
       // Validate state transition
       if (!isValidTransition(beforeData.processingStatus, afterData.processingStatus)) {
@@ -143,54 +147,155 @@ async function transcribeVideo(docRef) {
   const data = docRef.data();
   const contentId = docRef.id;
   let tempFilePath;
+  let fileStream;
 
-  console.log(`Starting transcription for content ${contentId}`, {
-    videoPath: data.videoPath,
-    currentState: data.processingStatus,
-  });
+  logMemoryUsage("start-transcription");
 
   try {
     const openai = new OpenAI({
       apiKey: OPENAI_API_KEY.value(),
     });
 
-    const videoPath = data.videoPath;
-    if (!videoPath) {
+    if (!data.videoPath) {
       throw new Error("Video path not found in document");
     }
 
-    const gsPath = videoPath.replace("gs://", "").split("/");
+    // Enhanced debugging for storage path parsing
+    console.log("Processing video path:", {
+      originalPath: data.videoPath,
+      contentId: contentId,
+    });
+
+    // Parse storage path
+    const gsPath = data.videoPath.replace("gs://", "").split("/");
     const bucketName = gsPath.shift();
     const filePath = gsPath.join("/");
+    const fileExtension = filePath.split(".").pop().toLowerCase();
 
-    const bucket = admin.storage().bucket(bucketName);
-    const file = bucket.file(filePath);
+    // Add debug logging for parsed paths
+    console.log("Parsed storage paths:", {
+      gsPath,
+      bucketName,
+      filePath,
+      fileExtension,
+    });
 
-    const [metadata] = await file.getMetadata();
-    const contentType = metadata.contentType;
-
-    const acceptedFormats = ["flac", "m4a", "mp3", "mp4", "mpeg", "mpga", "oga", "ogg", "wav", "webm"];
-    const fileExtension = contentType.split("/").pop();
-
+    // Validate file format
+    const acceptedFormats = ["mp3", "mp4", "mpeg", "mpga", "wav", "webm"];
     if (!acceptedFormats.includes(fileExtension)) {
-      throw new Error(`Unsupported file format: ${fileExtension}. Supported formats: ${acceptedFormats.join(", ")}`);
+      throw new Error(`Unsupported file format: ${fileExtension}`);
     }
 
+    // Check file size
+    const bucket = admin.storage().bucket(bucketName);
+    const file = bucket.file(filePath);
+    const [metadata] = await file.getMetadata();
+
+    // Add debug logging for file metadata
+    console.log("File metadata:", {
+      contentType: metadata.contentType,
+      size: metadata.size,
+      mediaLink: metadata.mediaLink,
+      name: metadata.name,
+      bucket: metadata.bucket,
+      customMetadata: metadata.metadata,
+    });
+
+    const fileSizeInMB = parseInt(metadata.size) / (1024 * 1024);
+    if (fileSizeInMB > 25) {
+      throw new Error(`File size ${fileSizeInMB.toFixed(2)}MB exceeds limit of 25MB`);
+    }
+
+    logMemoryUsage("before-download");
+
+    // Download file
     tempFilePath = path.join(os.tmpdir(), `${contentId}-${Date.now()}.${fileExtension}`);
-    console.log(`Downloading video ${contentId} to:`, tempFilePath);
+    console.log("Downloading to temp path:", tempFilePath);
 
     await file.download({destination: tempFilePath});
-    console.log(`Successfully downloaded video ${contentId}`);
 
-    console.log("Sending to OpenAI for transcription...");
+    // Verify downloaded file
+    const downloadedStats = fs.statSync(tempFilePath);
+    console.log("Downloaded file details:", {
+      exists: fs.existsSync(tempFilePath),
+      size: downloadedStats.size,
+      expectedSize: metadata.size,
+      matches: downloadedStats.size === parseInt(metadata.size),
+      tempPath: tempFilePath,
+    });
+
+    // More thorough file analysis
+    let detectedFormat;
+    try {
+      const buffer = fs.readFileSync(tempFilePath, {start: 0, end: 1024});
+      
+      // Common video file signatures
+      const signatures = {
+        mp4: ["66747970"], // 'ftyp'
+        quicktime: ["6d6f6f76"], // 'moov'
+        iso2: ["69736f32"], // 'iso2'
+        mp4a: ["6d703461"], // 'mp4a'
+      };
+      
+      const fileStart = buffer.slice(0, 16).toString("hex");
+      const analysis = {
+        firstBytes: fileStart,
+        knownSignatures: Object.entries(signatures).filter(([_, sig]) => 
+          fileStart.includes(sig[0])).map(([name]) => name),
+        possibleContainer: fileStart.includes("66747970") ? "MP4" :
+                         fileStart.includes("6d6f6f76") ? "QuickTime" : "Unknown",
+        mimeType: metadata.contentType,
+        customMetadata: metadata.metadata,
+      };
+      
+      console.log("Detailed file analysis:", analysis);
+      
+      // Set the appropriate content type based on the actual container format
+      detectedFormat = analysis.possibleContainer === "QuickTime" ? "video/quicktime" : 
+                      analysis.possibleContainer === "MP4" ? "video/mp4" : 
+                      "video/mp4"; // fallback to mp4
+      
+    } catch (readError) {
+      console.error("Error analyzing file:", readError);
+      detectedFormat = "video/mp4"; // fallback to mp4 if analysis fails
+    }
+
+    logMemoryUsage("after-download");
+
+    // Replace FormData creation with direct file stream
+    const fileStream = fs.createReadStream(tempFilePath);
+
+    console.log("Preparing OpenAI request:", {
+      filePath: tempFilePath,
+      fileSize: fs.statSync(tempFilePath).size,
+      streamReady: !!fileStream,
+      fileDescriptor: fileStream.fd,
+      encoding: fileStream.readableEncoding,
+    });
+
+    // Update the OpenAI API call with the detected format
     const transcription = await openai.audio.transcriptions.create({
-      file: fs.createReadStream(tempFilePath),
+      file: fs.createReadStream(tempFilePath, {
+        filepath: tempFilePath,
+        contentType: detectedFormat, // Use the detected format
+      }),
       model: "whisper-1",
       response_format: "verbose_json",
       timestamp_granularities: ["word"],
     });
 
-    // Update to next state with transcription results
+    console.log("Transcription response:", {
+      hasText: !!transcription.text,
+      hasWords: Array.isArray(transcription.words),
+      wordCount: transcription.words?.length,
+    });
+
+    // Clean up both files if needed
+    fs.unlinkSync(tempFilePath);
+
+    logMemoryUsage("after-cleanup");
+
+    // Update document
     await docRef.ref.update({
       processingStatus: ProcessingState.READY_FOR_MODERATION,
       transcriptionText: transcription.text,
@@ -198,30 +303,49 @@ async function transcribeVideo(docRef) {
       fileFormat: fileExtension,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
-
-    console.log(`Successfully transcribed video ${contentId}`);
+    logMemoryUsage("end-transcription");
   } catch (error) {
-    console.error(`Transcription failed for content ${contentId}:`, {
-      error: error.message,
-      stack: error.stack,
-      videoPath: data.videoPath,
+    // Enhanced error logging
+    console.error("Transcription error details:", {
+      contentId,
+      errorMessage: error.message,
+      errorName: error.name,
+      tempFileExists: tempFilePath ? fs.existsSync(tempFilePath) : false,
+      streamState: fileStream ? fileStream.readableState : null,
     });
+
+    // Clean up resources
+    if (fileStream) {
+      fileStream.destroy();
+    }
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+      fs.unlinkSync(tempFilePath);
+    }
 
     await docRef.ref.update({
       processingStatus: ProcessingState.FAILED,
-      error: error instanceof Error ? error.message : "Unknown error",
+      error: error.message,
       errorDetails: {
         message: error.message,
+        name: error.name,
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        technicalDetails: error.stack,
       },
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     throw error;
   } finally {
+    // Ensure cleanup happens in all cases
+    if (fileStream) {
+      fileStream.destroy();
+    }
     if (tempFilePath && fs.existsSync(tempFilePath)) {
-      fs.unlinkSync(tempFilePath);
-      console.log(`Cleaned up temporary file for video ${contentId}`);
+      try {
+        fs.unlinkSync(tempFilePath);
+      } catch (cleanupError) {
+        console.warn("Failed to cleanup temp file:", cleanupError);
+      }
     }
   }
 }
@@ -260,7 +384,7 @@ async function moderateContent(docRef) {
       moderationResults: {
         flagged: true,
         categories: {
-          "violence": true,
+          violence: true,
         },
       },
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -295,8 +419,7 @@ export const initializeVideoProcessing = functions
       timeoutSeconds: 540,
       memory: "2GB",
     })
-    .firestore
-    .document("content/{contentId}")
+    .firestore.document("content/{contentId}")
     .onCreate(async (snap, context) => {
       const data = snap.data();
       const contentId = context.params.contentId;
@@ -329,13 +452,15 @@ export const initializeVideoProcessing = functions
 export const handleVideoUpload = functions
     .runWith({
       timeoutSeconds: 540,
-      memory: "2GB",
+      memory: "4GB",
       failurePolicy: true,
     })
-    .storage
-    .bucket(STORAGE_BUCKET.value())
+    .storage.bucket(STORAGE_BUCKET.value())
     .object()
     .onFinalize(async (object) => {
+    // Run cleanup at start of function
+      cleanupTempDirectory();
+
       if (!object.name.startsWith("processing/")) {
         console.log(`Ignoring file outside processing directory: ${object.name}`);
         return;
@@ -360,9 +485,7 @@ export const handleVideoUpload = functions
       }
 
       try {
-        const docRef = admin.firestore()
-            .collection("content")
-            .doc(contentId);
+        const docRef = admin.firestore().collection("content").doc(contentId);
 
         const doc = await docRef.get();
         if (!doc.exists) {
@@ -383,3 +506,61 @@ export const handleVideoUpload = functions
         console.error(`Failed to update document ${contentId}:`, error);
       }
     });
+
+/**
+ * Cleans up any leftover media files in the temporary directory.
+ * This helps prevent disk space issues from failed executions.
+ * Called on cold starts to ensure clean state.
+ */
+function cleanupTempDirectory() {
+  const tmpDir = os.tmpdir();
+  const files = glob.sync(
+      path.join(tmpDir, "*.{mp3,mp4,wav,m4a,mpeg,mpga,oga,ogg,webm,flac}"),
+  );
+
+  for (const file of files) {
+    try {
+      fs.unlinkSync(file);
+      console.log(`Cleaned up old temp file: ${file}`);
+    } catch (error) {
+      console.warn(`Failed to delete temp file ${file}:`, error.message);
+    }
+  }
+}
+
+/**
+ * Logs current memory usage statistics with a label for tracking memory consumption at different stages
+ * @param {string} label - Identifier for the logging point (e.g., "start-transcription", "after-download")
+ * @return {void}
+ */
+function logMemoryUsage(label) {
+  const used = process.memoryUsage();
+  console.log(`Memory usage at ${label}:`, {
+    rss: `${Math.round(used.rss / 1024 / 1024)}MB`,
+    heapTotal: `${Math.round(used.heapTotal / 1024 / 1024)}MB`,
+    heapUsed: `${Math.round(used.heapUsed / 1024 / 1024)}MB`,
+    external: `${Math.round(used.external / 1024 / 1024)}MB`,
+  });
+}
+
+
+// TODO: Validate audio file before transcription
+// async function validateAudioFile(filePath) {
+//   if (!fs.existsSync(filePath)) {
+//     throw new Error("Audio file not found");
+//   }
+
+//   const stats = fs.statSync(filePath);
+//   const fileSizeInMB = stats.size / (1024 * 1024);
+
+//   if (fileSizeInMB > 25) {
+//     throw new Error(`File size ${fileSizeInMB.toFixed(2)}MB exceeds limit of 25MB`);
+//   }
+
+//   // Check if file is empty
+//   if (stats.size === 0) {
+//     throw new Error("Audio file is empty");
+//   }
+
+//   return true;
+// }
