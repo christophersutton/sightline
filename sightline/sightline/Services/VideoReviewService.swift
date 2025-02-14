@@ -5,6 +5,7 @@ import FirebaseFunctions
 import FirebaseAuth
 
 class VideoReviewService {
+    // Use default Storage configuration
     private let storage = Storage.storage()
     private let functions = Functions.functions()
     private let firestore = Firestore.firestore()
@@ -20,10 +21,22 @@ class VideoReviewService {
         
         do {
             print("📝 Starting upload for reviewId: \(reviewId)")
-            print("📝 Auth state:", currentUser.uid)
+            print("📝 Auth state: uid=\(currentUser.uid), token=\(currentUser.refreshToken ?? "none")")
+            
+            // Print Firebase app configuration
+            print("📝 Firebase configuration:")
+            let app = storage.app  // app is non-optional
+            print("  - App name:", app.name)
+            print("  - Options:", app.options.projectID ?? "no project id")
+            print("  - Storage bucket:", app.options.storageBucket ?? "no bucket")
             
             let storagePath = "processing/\(placeId)/\(reviewId).mp4"
             print("📝 Storage path: \(storagePath)")
+            
+            // Add size check
+            let attributes = try FileManager.default.attributesOfItem(atPath: videoURL.path)
+            let fileSize = attributes[.size] as? UInt64 ?? 0
+            print("📝 File size: \(fileSize) bytes")
             
             // Create initial Firestore document with pending status
             let initialData: [String: Any] = [
@@ -31,7 +44,7 @@ class VideoReviewService {
                 "placeIds": [placeId],
                 "userId": currentUser.uid,
                 "createdAt": FieldValue.serverTimestamp(),
-                "processingStatus": "awaiting_upload",
+                "processingStatus": ProcessingState.created.rawValue,
                 "neighborhoodId": "",
                 "caption": "",
                 "thumbnailUrl": "",
@@ -55,13 +68,22 @@ class VideoReviewService {
             let videoData = try Data(contentsOf: videoURL)
             let storageRef = storage.reference().child(storagePath)
             
+            // More explicit metadata
             let metadata = StorageMetadata()
             metadata.contentType = "video/mp4"
+            metadata.customMetadata = [
+                "userId": currentUser.uid,
+                "placeId": placeId,
+                "uploadTimestamp": "\(Date().timeIntervalSince1970)"
+            ]
             
             print("📝 Using storage bucket:", storage.reference().bucket)
+            print("📝 Metadata:", metadata.dictionaryRepresentation())
             
             print("📝 Uploading to Storage")
-            _ = try await storageRef.putDataAsync(videoData, metadata: metadata)
+            let result = try await storageRef.putDataAsync(videoData, metadata: metadata)
+            print("📝 Upload metadata result:", result.dictionaryRepresentation())
+            
             let downloadURL = try await storageRef.downloadURL()
             
             // Update document with video path to trigger processing
@@ -71,6 +93,7 @@ class VideoReviewService {
                 .updateData([
                     "videoPath": "gs://\(storage.reference().bucket)/\(storagePath)",
                     "videoUrl": downloadURL.absoluteString,
+                    "processingStatus": ProcessingState.readyForTranscription.rawValue,
                     "updatedAt": FieldValue.serverTimestamp()
                 ])
             
@@ -81,12 +104,21 @@ class VideoReviewService {
             print("❌ Upload error: \(error)")
             if let storageError = error as? StorageErrorCode {
                 print("Storage error code: \(storageError.rawValue)")
+                print("Storage error description: \(storageError.localizedDescription)")
             }
+            
+            // Add more detailed error logging
+            if let nsError = error as NSError? {
+                print("Error domain: \(nsError.domain)")
+                print("Error code: \(nsError.code)")
+                print("Error user info: \(nsError.userInfo)")
+            }
+            
             try? await firestore
                 .collection("content")
                 .document(reviewId)
                 .updateData([
-                    "processingStatus": "error",
+                    "processingStatus": ProcessingState.failed.rawValue,
                     "processingError": [
                         "stage": "upload",
                         "message": error.localizedDescription,
@@ -97,20 +129,21 @@ class VideoReviewService {
         }
     }
 
-    func listenToProcessingStatus(reviewId: String, completion: @escaping (String) -> Void) -> ListenerRegistration {
+    func listenToProcessingStatus(reviewId: String, completion: @escaping (ProcessingState) -> Void) -> ListenerRegistration {
         let db = Firestore.firestore()
         return db.collection("content").document(reviewId)
             .addSnapshotListener { documentSnapshot, error in
                 guard let document = documentSnapshot else {
                     print("Error fetching document: \(error?.localizedDescription ?? "Unknown error")")
-                    completion("error")
+                    completion(.failed)
                     return
                 }
                 
                 guard let data = document.data(),
-                      let status = data["processingStatus"] as? String else {
-                    print("Document data was empty or missing processingStatus")
-                    completion("error")
+                      let statusString = data["processingStatus"] as? String,
+                      let status = ProcessingState(rawValue: statusString) else {
+                    print("Document data was empty or had invalid processingStatus")
+                    completion(.failed)
                     return
                 }
                 

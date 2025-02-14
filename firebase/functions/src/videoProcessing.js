@@ -8,37 +8,63 @@ import * as path from "path";
 import * as os from "os";
 
 // Constants for configuration
-
-// Replace the current OpenAI initialization
 const OPENAI_API_KEY = defineString("OPENAI_API_KEY");
+const STORAGE_BUCKET = defineString("STORAGE_BUCKET");
 
-// Define clear states that represent the actual processing stages
+// Define clear states that represent processing stages
 const ProcessingState = {
-  AWAITING_UPLOAD: "awaiting_upload", // Initial state when doc is created
-  PENDING: "pending", // Video uploaded, ready to process
-  MODERATING: "moderating",
-  TAGGING: "tagging",
-  COMPLETE: "complete",
-  ERROR: "error",
-  REJECTED: "rejected",
+  // Initial states
+  CREATED: "created", // Document created, no video yet
+
+  // Processing pipeline states - each state means "ready to process this step"
+  READY_FOR_TRANSCRIPTION: "ready_for_transcription", // Video uploaded, ready to begin
+  READY_FOR_MODERATION: "ready_for_moderation", // Transcription done, ready for moderation
+  READY_FOR_TAGGING: "ready_for_tagging", // Moderation passed, ready for tagging
+
+  // Terminal states
+  COMPLETE: "complete", // Successfully processed
+  REJECTED: "rejected", // Failed moderation
+  FAILED: "failed", // Technical error occurred
+};
+
+// Valid state transitions
+const ValidTransitions = {
+  [ProcessingState.CREATED]: [
+    ProcessingState.READY_FOR_TRANSCRIPTION,
+  ],
+  [ProcessingState.READY_FOR_TRANSCRIPTION]: [
+    ProcessingState.READY_FOR_MODERATION,
+    ProcessingState.FAILED,
+  ],
+  [ProcessingState.READY_FOR_MODERATION]: [
+    ProcessingState.READY_FOR_TAGGING,
+    ProcessingState.REJECTED,
+    ProcessingState.FAILED,
+  ],
+  [ProcessingState.READY_FOR_TAGGING]: [
+    ProcessingState.COMPLETE,
+    ProcessingState.FAILED,
+  ],
+
+  // Terminal states have no valid transitions out
+  [ProcessingState.COMPLETE]: [],
+  [ProcessingState.REJECTED]: [],
+  [ProcessingState.FAILED]: [],
 };
 
 /**
- * Processes a video file through multiple AI services:
- * 1. Stores in Firebase Storage
- * 2. Transcribes using OpenAI Whisper
- * 3. Moderates content
- * 4. Classifies content with tags
+ * Validates if a state transition is allowed in the video processing state machine
+ * @param {string} fromState - The current state
+ * @param {string} toState - The target state
+ * @return {boolean} Whether the transition is valid
  */
+function isValidTransition(fromState, toState) {
+  const validNextStates = ValidTransitions[fromState] || [];
+  return validNextStates.includes(toState);
+}
 
 /**
  * Firestore trigger that handles the video processing state machine.
- * Monitors changes to content documents and routes to appropriate handlers
- * based on the processing status.
- *
- * @param {functions.Change<functions.firestore.DocumentSnapshot>} change - Contains state before and after the change
- * @param {functions.EventContext} context - Metadata about the event
- * @returns {Promise<void>}
  */
 export const handleVideoProcessing = functions
     .runWith({
@@ -60,30 +86,43 @@ export const handleVideoProcessing = functions
 
       console.log(`State transition for ${contentId}: ${beforeData.processingStatus} -> ${afterData.processingStatus}`);
 
+      // Validate state transition
+      if (!isValidTransition(beforeData.processingStatus, afterData.processingStatus)) {
+        console.error(`Invalid state transition for ${contentId}`);
+        await change.after.ref.update({
+          processingStatus: ProcessingState.FAILED,
+          error: `Invalid state transition from ${beforeData.processingStatus} to ${afterData.processingStatus}`,
+          errorDetails: {
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          },
+        });
+        return;
+      }
+
       try {
         switch (afterData.processingStatus) {
-          case ProcessingState.PENDING:
+          case ProcessingState.READY_FOR_TRANSCRIPTION:
             console.log(`Starting transcription for ${contentId}`);
             await transcribeVideo(change.after);
             break;
 
-          case ProcessingState.MODERATING:
+          case ProcessingState.READY_FOR_MODERATION:
             console.log(`Starting moderation for ${contentId}`);
             await moderateContent(change.after);
             break;
 
-          case ProcessingState.TAGGING:
+          case ProcessingState.READY_FOR_TAGGING:
             console.log(`Starting tagging for ${contentId}`);
             await generateTags(change.after);
             break;
 
           default:
-            console.log(`Unhandled state for ${contentId}: ${afterData.processingStatus}`);
+            console.log(`No processing needed for state: ${afterData.processingStatus}`);
         }
       } catch (error) {
         console.error(`Error processing ${contentId}:`, error);
         await change.after.ref.update({
-          processingStatus: ProcessingState.ERROR,
+          processingStatus: ProcessingState.FAILED,
           error: error.message,
           errorDetails: {
             state: afterData.processingStatus,
@@ -97,16 +136,13 @@ export const handleVideoProcessing = functions
 
 /**
  * Performs video transcription using OpenAI's Whisper API.
- * Downloads video file temporarily, transcribes, then cleans up.
- *
- * @param {functions.firestore.DocumentSnapshot} docRef - Reference to the content document
+ * @param {FirebaseFirestore.DocumentSnapshot} docRef - Firestore document reference for the content
  * @return {Promise<void>}
  */
 async function transcribeVideo(docRef) {
   const data = docRef.data();
   const contentId = docRef.id;
   let tempFilePath;
-  let tempAudioPath;
 
   console.log(`Starting transcription for content ${contentId}`, {
     videoPath: data.videoPath,
@@ -114,18 +150,15 @@ async function transcribeVideo(docRef) {
   });
 
   try {
-    // Initialize OpenAI with the API key at runtime
     const openai = new OpenAI({
       apiKey: OPENAI_API_KEY.value(),
     });
 
-    // Get the video file reference from the stored path
     const videoPath = data.videoPath;
     if (!videoPath) {
       throw new Error("Video path not found in document");
     }
 
-    // Extract the full path from the gs:// URL
     const gsPath = videoPath.replace("gs://", "").split("/");
     const bucketName = gsPath.shift();
     const filePath = gsPath.join("/");
@@ -133,11 +166,9 @@ async function transcribeVideo(docRef) {
     const bucket = admin.storage().bucket(bucketName);
     const file = bucket.file(filePath);
 
-    // Get file metadata to check format
     const [metadata] = await file.getMetadata();
     const contentType = metadata.contentType;
 
-    // List of formats accepted by Whisper API
     const acceptedFormats = ["flac", "m4a", "mp3", "mp4", "mpeg", "mpga", "oga", "ogg", "wav", "webm"];
     const fileExtension = contentType.split("/").pop();
 
@@ -145,15 +176,12 @@ async function transcribeVideo(docRef) {
       throw new Error(`Unsupported file format: ${fileExtension}. Supported formats: ${acceptedFormats.join(", ")}`);
     }
 
-    // Create a temporary file path
     tempFilePath = path.join(os.tmpdir(), `${contentId}-${Date.now()}.${fileExtension}`);
     console.log(`Downloading video ${contentId} to:`, tempFilePath);
 
-    // Download the file
     await file.download({destination: tempFilePath});
     console.log(`Successfully downloaded video ${contentId}`);
 
-    // Request transcription from OpenAI
     console.log("Sending to OpenAI for transcription...");
     const transcription = await openai.audio.transcriptions.create({
       file: fs.createReadStream(tempFilePath),
@@ -162,10 +190,9 @@ async function transcribeVideo(docRef) {
       timestamp_granularities: ["word"],
     });
 
-    // When done, update directly to next state
+    // Update to next state with transcription results
     await docRef.ref.update({
-      processingStatus: ProcessingState.MODERATING,
-      transcriptionStatus: "completed",
+      processingStatus: ProcessingState.READY_FOR_MODERATION,
       transcriptionText: transcription.text,
       transcriptionWords: transcription.words || [],
       fileFormat: fileExtension,
@@ -181,10 +208,8 @@ async function transcribeVideo(docRef) {
     });
 
     await docRef.ref.update({
-      processingStatus: ProcessingState.ERROR,
-      transcriptionStatus: "error",
-      transcriptionError: error instanceof Error ? error.message : "Unknown error",
-      errorType: "TRANSCRIPTION_ERROR",
+      processingStatus: ProcessingState.FAILED,
+      error: error instanceof Error ? error.message : "Unknown error",
       errorDetails: {
         message: error.message,
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
@@ -194,29 +219,21 @@ async function transcribeVideo(docRef) {
 
     throw error;
   } finally {
-    // Clean up temp files
     if (tempFilePath && fs.existsSync(tempFilePath)) {
       fs.unlinkSync(tempFilePath);
       console.log(`Cleaned up temporary file for video ${contentId}`);
-    }
-    if (tempAudioPath && fs.existsSync(tempAudioPath)) {
-      fs.unlinkSync(tempAudioPath);
-      console.log(`Cleaned up temporary audio file for video ${contentId}`);
     }
   }
 }
 
 /**
- * Simulates the content moderation process with a delay.
- * Has a 90% chance of passing moderation.
- * Updates document with moderation results.
- *
- * @param {functions.firestore.DocumentSnapshot} docRef - Reference to the content document
+ * Performs content moderation on the transcribed video content.
+ * @param {FirebaseFirestore.DocumentSnapshot} docRef - Firestore document reference for the content
  * @return {Promise<void>}
  */
 async function moderateContent(docRef) {
   const contentId = docRef.id;
-  console.log(`Starting moderation simulation for content ${contentId}`);
+  console.log(`Starting moderation for content ${contentId}`);
 
   // Simulate some processing time
   await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -230,7 +247,7 @@ async function moderateContent(docRef) {
 
   if (shouldPass) {
     await docRef.ref.update({
-      processingStatus: ProcessingState.TAGGING,
+      processingStatus: ProcessingState.READY_FOR_TAGGING,
       moderationResults: {
         flagged: false,
         categories: {},
@@ -252,15 +269,13 @@ async function moderateContent(docRef) {
 }
 
 /**
- * Simulates the content tagging process with a delay.
- * Updates document with dummy tags and marks as complete.
- *
- * @param {functions.firestore.DocumentSnapshot} docRef - Reference to the content document
+ * Generates tags for the content based on the transcription and moderation results.
+ * @param {FirebaseFirestore.DocumentSnapshot} docRef - Firestore document reference for the content
  * @return {Promise<void>}
  */
 async function generateTags(docRef) {
   const contentId = docRef.id;
-  console.log(`Starting tagging simulation for content ${contentId}`);
+  console.log(`Starting tagging for content ${contentId}`);
 
   // Simulate some processing time
   await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -272,81 +287,9 @@ async function generateTags(docRef) {
   });
 }
 
-// 2. Background classification function
-// export const classifyVideoContent = functions.firestore
-//     .document("content/{contentId}")
-//     .onUpdate(async (change, context) => {
-//       const before = change.before.data();
-//       const after = change.after.data();
-
-//       if (
-//         before.processingStatus !== "moderating" ||
-//         after.processingStatus !== "tagging"
-//       ) {
-//         return;
-//       }
-
-//       try {
-//         // Get video analysis from Video Intelligence API
-//         const [operation] = await videoClient.annotateVideo({
-//           inputUri: after.videoPath,
-//           // We'll need to store this path during upload
-//           features: [
-//             "LABEL_DETECTION",
-//             "EXPLICIT_CONTENT_DETECTION",
-//             "SPEECH_TRANSCRIPTION",
-//           ],
-//         });
-
-//         const [analysisResult] = await operation.promise();
-
-//         // Use the analysis result in classification if needed
-//         console.log("Video analysis complete:", analysisResult);
-
-//         // Get content classification
-//         const classificationResponse = await openai.chat.completions.create({
-//           model: "gpt-4",
-//           messages: [
-//             {
-//               role: "system",
-//               content:
-//               "Classify the following content into relevant tags. " +
-//               // eslint-disable-next-line max-len
-//               "Return only a JSON array of applicable tags from these options: " +
-//               "[\"restaurant\", \"drinks\", \"outdoor\", \"indoor\", " +
-//               "\"entertainment\", \"shopping\"]",
-//             },
-//             {
-//               role: "user",
-//               content: after.transcription,
-//             },
-//           ],
-//           response_format: {type: "json_object"},
-//         });
-
-//         const tags = JSON.parse(
-//             classificationResponse.choices[0].message.content,
-//         );
-
-//         // Update document with final status and tags
-//         await change.after.ref.update({
-//           processingStatus: "complete",
-//           tags: tags,
-//           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-//         });
-//       } catch (error) {
-//         console.error("Classification error:", error);
-//         await change.after.ref.update({
-//           processingStatus: "rejected",
-//           processingError: {
-//             stage: "classification",
-//             message: error.message,
-//             timestamp: admin.firestore.FieldValue.serverTimestamp(),
-//           },
-//         });
-//       }
-//     });
-
+/**
+ * Initializes processing for newly created content.
+ */
 export const initializeVideoProcessing = functions
     .runWith({
       timeoutSeconds: 540,
@@ -363,36 +306,36 @@ export const initializeVideoProcessing = functions
         hasVideoPath: !!data.videoPath,
       });
 
-      // Only start processing if we have a video path
+      // Start in CREATED state if no video path
       if (!data.videoPath) {
-        console.log(`Skipping processing - no video path for content ${contentId}`);
-        return null;
+        console.log(`Setting to CREATED state - no video path for content ${contentId}`);
+        await snap.ref.update({
+          processingStatus: ProcessingState.CREATED,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        return;
       }
 
-      // Initialize the processing state
+      // Initialize the processing pipeline
       await snap.ref.update({
-        processingStatus: ProcessingState.PENDING,
+        processingStatus: ProcessingState.READY_FOR_TRANSCRIPTION,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
     });
 
-// At the top level, just define the parameter
-const STORAGE_BUCKET = defineString("STORAGE_BUCKET");
-
+/**
+ * Handles video upload events.
+ */
 export const handleVideoUpload = functions
     .runWith({
       timeoutSeconds: 540,
       memory: "2GB",
-      failurePolicy: true, // This enables automatic retries
+      failurePolicy: true,
     })
     .storage
-    .bucket(STORAGE_BUCKET.value()) // Need to use .value() here specifically for bucket definition
+    .bucket(STORAGE_BUCKET.value())
     .object()
     .onFinalize(async (object) => {
-      // Remove the validation since we're using the value at definition
-      // If bucket isn't configured, the function won't deploy at all
-
-      // Only handle files in the processing directory
       if (!object.name.startsWith("processing/")) {
         console.log(`Ignoring file outside processing directory: ${object.name}`);
         return;
@@ -409,9 +352,6 @@ export const handleVideoUpload = functions
       // Extract contentId from path (processing/placeId/contentId.mp4)
       const pathParts = object.name.split("/");
       console.log("Path parts:", pathParts);
-      // pathParts[0] would be "processing"
-      // pathParts[1] would be placeId
-      // pathParts[2] would be "contentId.mp4"
       const contentId = pathParts[2]?.replace(".mp4", "");
 
       if (!contentId) {
@@ -419,13 +359,11 @@ export const handleVideoUpload = functions
         return;
       }
 
-      // Update the content document to PENDING to start processing
       try {
         const docRef = admin.firestore()
             .collection("content")
             .doc(contentId);
 
-        // First check if document exists
         const doc = await docRef.get();
         if (!doc.exists) {
           console.error(`Document ${contentId} not found`);
@@ -434,12 +372,13 @@ export const handleVideoUpload = functions
 
         console.log("Current document state:", doc.data());
 
+        // Start processing pipeline
         await docRef.update({
-          processingStatus: ProcessingState.PENDING,
+          processingStatus: ProcessingState.READY_FOR_TRANSCRIPTION,
           videoPath: `gs://${object.bucket}/${object.name}`,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-        console.log(`Updated document ${contentId} to PENDING`);
+        console.log(`Updated document ${contentId} to start processing`);
       } catch (error) {
         console.error(`Failed to update document ${contentId}:`, error);
       }

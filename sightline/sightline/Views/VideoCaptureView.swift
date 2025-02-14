@@ -139,28 +139,13 @@ class VideoCaptureController: NSObject, ObservableObject {
             guard let self = self else { return }
             
             Task { @MainActor in
-                switch status {
-                case "awaiting_upload":
-                    self.processingState = .awaitingUpload
-                case "pending":
-                    self.processingState = .pending
-                case "moderating":
-                    self.processingState = .moderating
-                case "tagging":
-                    self.processingState = .tagging
-                case "complete":
-                    self.processingState = .complete
-                    // Wait a moment before dismissing
+                self.processingState = status
+                
+                // If complete, wait a moment before dismissing
+                if status == .complete {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                         self.shouldDismiss = true
                     }
-                case "error":
-                    self.processingState = .error(message: "Processing failed")
-                case "rejected":
-                    self.processingState = .error(message: "Content was rejected")
-                default:
-                    print("Unknown processing status:", status)
-                    self.processingState = .error(message: "Unknown status")
                 }
             }
         }
@@ -180,6 +165,7 @@ extension VideoCaptureController: AVCaptureFileOutputRecordingDelegate {
             return
         }
         
+        // Set state to uploading before starting the upload
         processingState = .uploading
         
         Task {
@@ -189,12 +175,9 @@ extension VideoCaptureController: AVCaptureFileOutputRecordingDelegate {
                 // Start listening for processing updates
                 listenToProcessingUpdates(reviewId: reviewId)
                 
-                await MainActor.run {
-                    processingState = .pending
-                }
             } catch {
                 await MainActor.run {
-                    processingState = .error(message: error.localizedDescription)
+                    processingState = .failed
                 }
             }
         }
@@ -315,6 +298,7 @@ struct ProcessingStatusView: View {
     
     var body: some View {
         VStack(spacing: 8) {
+            // Show progress indicator for any non-terminal state
             if case .uploading = state {
                 ProgressView()
                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
@@ -327,38 +311,6 @@ struct ProcessingStatusView: View {
                 .padding(.horizontal)
                 .background(Color.black.opacity(0.6))
                 .cornerRadius(8)
-        }
-    }
-}
-
-enum ProcessingState {
-    case notStarted
-    case uploading
-    case awaitingUpload
-    case pending
-    case moderating
-    case tagging
-    case complete
-    case error(message: String)
-    
-    var description: String {
-        switch self {
-        case .notStarted:
-            return ""
-        case .uploading:
-            return "Uploading video..."
-        case .awaitingUpload:
-            return "Preparing upload..."
-        case .pending:
-            return "Transcribing audio..."
-        case .moderating:
-            return "Checking content..."
-        case .tagging:
-            return "Analyzing content..."
-        case .complete:
-            return "Complete!"
-        case .error(let message):
-            return "Error: \(message)"
         }
     }
 } 
