@@ -3,18 +3,27 @@ import UIKit
 
 struct VerticalFeedView<Content: View>: UIViewControllerRepresentable {
     let content: (Int) -> Content
+    
     @Binding var currentIndex: Int
     let itemCount: Int
+    
+    // Newly added feedVersion. If it changes, we'll force a reload.
+    let feedVersion: Int
+    
     let onIndexChanged: (Int) -> Void
     
-    init(currentIndex: Binding<Int>, 
-         itemCount: Int,
-         onIndexChanged: @escaping (Int) -> Void,
-         @ViewBuilder content: @escaping (Int) -> Content) {
-        self.content = content
+    init(
+        currentIndex: Binding<Int>,
+        itemCount: Int,
+        feedVersion: Int,
+        onIndexChanged: @escaping (Int) -> Void,
+        @ViewBuilder content: @escaping (Int) -> Content
+    ) {
         self._currentIndex = currentIndex
         self.itemCount = itemCount
+        self.feedVersion = feedVersion
         self.onIndexChanged = onIndexChanged
+        self.content = content
     }
     
     func makeCoordinator() -> Coordinator {
@@ -36,7 +45,7 @@ struct VerticalFeedView<Content: View>: UIViewControllerRepresentable {
             (gesture as? UIScreenEdgePanGestureRecognizer)?.isEnabled = false
         }
         
-        // Set up the initial view controller
+        // Set the initial view controller
         let hostingController = context.coordinator.hostingController(for: currentIndex)
         controller.setViewControllers([hostingController], direction: .forward, animated: false)
         
@@ -44,82 +53,106 @@ struct VerticalFeedView<Content: View>: UIViewControllerRepresentable {
     }
     
     func updateUIViewController(_ uiViewController: UIPageViewController, context: Context) {
-        // Handle external index changes
-        if context.coordinator.currentIndex != currentIndex {
-            let newVC = context.coordinator.hostingController(for: currentIndex)
-            let direction: UIPageViewController.NavigationDirection = 
-                context.coordinator.currentIndex > currentIndex ? .reverse : .forward
+        let coordinator = context.coordinator
+        
+        // Add bounds checking
+        guard currentIndex >= 0 && currentIndex < itemCount else {
+            // Reset to a valid index if out of bounds
+            DispatchQueue.main.async {
+                self.currentIndex = max(0, min(self.itemCount - 1, self.currentIndex))
+            }
+            return
+        }
+        
+        // 1) If feedVersion changes, forcibly reload everything to show new content
+        if coordinator.feedVersion != feedVersion {
+            coordinator.feedVersion = feedVersion
+            coordinator.hostingControllers.removeAll()
             
-            // Use setViewControllers without animation for distant jumps
-            let shouldAnimate = abs(context.coordinator.currentIndex - currentIndex) <= 1
+            let newVC = coordinator.hostingController(for: currentIndex)
+            uiViewController.setViewControllers([newVC], direction: .forward, animated: false)
+            coordinator.currentIndex = currentIndex
+            return
+        }
+        
+        // 2) If user swiped to change currentIndex, update the displayed controller
+        if coordinator.currentIndex != currentIndex {
+            let newVC = coordinator.hostingController(for: currentIndex)
+            let direction: UIPageViewController.NavigationDirection =
+                coordinator.currentIndex > currentIndex ? .reverse : .forward
+            
+            // Only animate if the user moved 1 step
+            let shouldAnimate = abs(coordinator.currentIndex - currentIndex) <= 1
             uiViewController.setViewControllers([newVC], direction: direction, animated: shouldAnimate)
-            context.coordinator.currentIndex = currentIndex
+            
+            coordinator.currentIndex = currentIndex
         }
     }
     
     class Coordinator: NSObject, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
         var parent: VerticalFeedView
         var currentIndex: Int
+        var feedVersion: Int
+        
+        // Cache each page's UIHostingController
         var hostingControllers: [Int: UIHostingController<AnyView>] = [:]
         
         init(_ verticalFeedView: VerticalFeedView) {
             self.parent = verticalFeedView
             self.currentIndex = verticalFeedView.currentIndex
+            self.feedVersion = verticalFeedView.feedVersion
         }
         
         func hostingController(for index: Int) -> UIHostingController<AnyView> {
+            // If out of bounds, show a blank view
+            guard index >= 0 && index < parent.itemCount else {
+                return UIHostingController(rootView: AnyView(Color.black))
+            }
             if let existingController = hostingControllers[index] {
                 return existingController
             }
-            
-            guard index >= 0 && index < parent.itemCount else {
-                // Return an empty view controller if index is out of bounds
-                let fallbackView = AnyView(Color.black)
-                let fallbackController = UIHostingController(rootView: fallbackView)
-                fallbackController.view.backgroundColor = .clear
-                return fallbackController
-            }
-            
+            // Build a new hosting controller for this index
             let view = AnyView(
                 parent.content(index)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.black)
             )
+            let controller = UIHostingController(rootView: view)
+            controller.view.backgroundColor = .clear
+            hostingControllers[index] = controller
             
-            let hostingController = UIHostingController(rootView: view)
-            hostingController.view.backgroundColor = .clear
-            hostingControllers[index] = hostingController
-            
+            // Clean up distant pages for memory usage
             cleanupDistantControllers(from: index)
             
-            return hostingController
+            return controller
         }
         
         private func cleanupDistantControllers(from currentIndex: Int) {
+            // Keep only a few pages around (the current, plus some near neighbors)
             let keepRange = (currentIndex - 2)...(currentIndex + 2)
             hostingControllers = hostingControllers.filter { keepRange.contains($0.key) }
         }
         
         // MARK: - UIPageViewControllerDataSource
-        
-        func pageViewController(_ pageViewController: UIPageViewController, viewControllerBefore viewController: UIViewController) -> UIViewController? {
+        func pageViewController(_ pageViewController: UIPageViewController,
+                                viewControllerBefore viewController: UIViewController) -> UIViewController? {
             let index = currentIndex - 1
             guard index >= 0 else { return nil }
             return hostingController(for: index)
         }
         
-        func pageViewController(_ pageViewController: UIPageViewController, viewControllerAfter viewController: UIViewController) -> UIViewController? {
+        func pageViewController(_ pageViewController: UIPageViewController,
+                                viewControllerAfter viewController: UIViewController) -> UIViewController? {
             let index = currentIndex + 1
             guard index < parent.itemCount else { return nil }
             return hostingController(for: index)
         }
         
         // MARK: - UIPageViewControllerDelegate
-        
-        func pageViewController(_ pageViewController: UIPageViewController, 
-                              didFinishAnimating finished: Bool,
-                              previousViewControllers: [UIViewController],
-                              transitionCompleted completed: Bool) {
+        func pageViewController(_ pageViewController: UIPageViewController,
+                                didFinishAnimating finished: Bool,
+                                previousViewControllers: [UIViewController],
+                                transitionCompleted completed: Bool) {
             guard completed,
                   let visibleViewController = pageViewController.viewControllers?.first,
                   let index = hostingControllers.first(where: { $0.value == visibleViewController })?.key

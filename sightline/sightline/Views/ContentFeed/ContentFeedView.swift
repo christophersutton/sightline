@@ -4,7 +4,7 @@ import UIKit
 struct ContentFeedView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var appStore: AppStore
-
+    
     @State private var showingNeighborhoods = false
     @State private var showingCategories = false
     @State private var selectedPlaceId: String? = nil
@@ -12,75 +12,70 @@ struct ContentFeedView: View {
     var body: some View {
         ZStack(alignment: .top) {
             Color.black.ignoresSafeArea()
-
+            
             contentDisplay
                 .zIndex(0)
-
+            
             menuBar
                 .zIndex(2)
         }
+        // Display place detail in a sheet when tapped
         .sheet(item: Binding(
             get: { selectedPlaceId.map { PlaceDetailPresentation(placeId: $0) } },
             set: { presentation in selectedPlaceId = presentation?.placeId }
-        )) { presentation in
+        )) {
+            presentation in
             PlaceDetailView(placeId: presentation.placeId)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .presentationBackgroundInteraction(.enabled)
         }
         .task {
+            // Load unlocked neighborhoods once
             await appStore.loadUnlockedNeighborhoods()
         }
     }
 
-    // Subview for displaying the main content (loading, empty, or feed)
     @ViewBuilder
     private var contentDisplay: some View {
         if appStore.unlockedNeighborhoods.isEmpty {
             EmptyNeighborhoodState()
         } else if appStore.contentItems.isEmpty {
-            Text("No content available").foregroundColor(.white)
+            Text("No content available")
+                .foregroundColor(.white)
         } else {
             feedView
         }
     }
 
-  private var feedView: some View {
-          VerticalFeedView(
-              currentIndex: $appStore.currentIndex,
-              itemCount: appStore.contentItems.count,
-              onIndexChanged: { index in
-                  appStore.currentIndex = index // ONLY update the index here
-              }
-          ) { index in
-              if index < appStore.contentItems.count {
-                  // KEY CHANGE:  We now only use *one* ContentItemView,
-                  // and its content is driven by appStore.currentContentItem.
-                   Color.clear // Use Color.clear as placeholder
-                  .onTapGesture {
-                      let placeIds = appStore.contentItems[index].placeIds
-                      if !placeIds.isEmpty { selectedPlaceId = placeIds[0] }
-                  }
-              } else {
-                  Color.black
-              }
-          }
-          .ignoresSafeArea()
-          // This .id() is no longer needed because we are updating contentItems
-          //.id("\(appStore.selectedNeighborhood?.id ?? "none")-\(appStore.selectedCategory.id)")
-          // Overlay our single ContentItemView
-             .overlay(
-                 Group {
-                      if let currentContentItem = appStore.currentContentItem {
-                         ContentItemView(content: currentContentItem)
-                             .environmentObject(appStore)
-                             .id(currentContentItem.id) // KEY: Rebuild this view when content changes
-                      }
-                 }
-             )
-      }
-  
-    // Subview for the top menu bar (neighborhood and category selectors)
+    private var feedView: some View {
+        VerticalFeedView(
+            currentIndex: $appStore.currentIndex,
+            itemCount: appStore.contentItems.count,
+            feedVersion: appStore.feedVersion,
+            onIndexChanged: { index in
+                if index >= 0 && index < appStore.contentItems.count {
+                    appStore.currentIndex = index
+                }
+            }
+        ) { index in
+            if index >= 0 && index < appStore.contentItems.count {
+                let content = appStore.contentItems[index]
+                ContentItemView(content: content)
+                    .environmentObject(appStore)
+                    .onTapGesture {
+                        if let placeId = content.placeIds.first {
+                            selectedPlaceId = placeId
+                        }
+                    }
+            } else {
+                Color.black
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .ignoresSafeArea()
+    }
+
     private var menuBar: some View {
         HStack(alignment: .top) {
             NeighborhoodSelectorView(
@@ -89,9 +84,9 @@ struct ContentFeedView: View {
                 onExploreMore: { appState.shouldSwitchToDiscover = true },
                 onNeighborhoodSelected: { Task { await appStore.loadContent() } }
             )
-
+            
             Spacer()
-
+            
             if let neighborhoodId = appStore.selectedNeighborhood?.id {
                 CategorySelectorView(
                     selectedCategory: $appStore.selectedCategory,
@@ -107,25 +102,6 @@ struct ContentFeedView: View {
         .padding(.horizontal, 16)
     }
 }
-
-struct LoadingState: View {
-    var body: some View {
-        GeometryReader { geometry in
-            VStack(spacing: 16) {
-                ProgressView()
-                    .scaleEffect(1.5)
-                    .tint(.white)
-                
-                Text("Loading...")
-                    .font(.custom("Baskerville", size: 18))
-                    .foregroundColor(.white.opacity(0.8))
-            }
-            .frame(width: geometry.size.width, height: geometry.size.height)
-        }
-    }
-}
-
-
 
 struct PlaceDetailPresentation: Identifiable {
     let id = UUID()

@@ -5,11 +5,11 @@ struct AdaptiveColorButton<Label: View>: View {
     let action: () -> Void
     let label: () -> Label
     let isSelected: Bool
-    let expandHorizontally: Bool  // New parameter
+    let expandHorizontally: Bool
 
     init(
         isSelected: Bool,
-        expandHorizontally: Bool = false, // default false
+        expandHorizontally: Bool = false,
         action: @escaping () -> Void,
         @ViewBuilder label: @escaping () -> Label
     ) {
@@ -21,41 +21,14 @@ struct AdaptiveColorButton<Label: View>: View {
     
     var body: some View {
         Button(action: action) {
-            ZStack {
-                // Background layers for the button
-                Color.white.opacity(isSelected ? 0.95 : 0.4)
-                    .background(.ultraThickMaterial)
-                    .frame(height: 36) // Slightly reduced height for more squared look
-                    .cornerRadius(8)   // Much smaller corner radius
-                    // Lighter shadow for squared look
-                    .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
-                    .overlay {
-                        // Subtle gradient for depth
-                        LinearGradient(
-                            colors: [
-                                .white.opacity(0.6),
-                                .gray.opacity(0.1)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                        .cornerRadius(8)
-                    }
-                    .overlay {
-                        // Glassy border
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(.white.opacity(0.5), lineWidth: 1)
-                    }
-                
-                // Button label
-                label()
-                    .foregroundColor(.black)
-                    .controlSize(.small)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-            }
-            .fixedSize(horizontal: true, vertical: false)
-            .frame(height: 36)
+            label()
+                .foregroundColor(.black)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(height: 36)
+                .background(.ultraThinMaterial)
+                .cornerRadius(8)
+                .fixedSize(horizontal: !expandHorizontally, vertical: false)
         }
         .scaleEffect(isSelected ? 0.98 : 1.0)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
