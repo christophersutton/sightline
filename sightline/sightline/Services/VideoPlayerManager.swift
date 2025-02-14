@@ -100,6 +100,7 @@ final class VideoPlayerManager: ObservableObject {
         if let player = preloadedPlayers[url] {
             player.pause()
             if currentlyPlayingUrl == url {
+                currentPlayer?.pause()
                 currentPlayer = nil
                 currentlyPlayingUrl = nil
             }

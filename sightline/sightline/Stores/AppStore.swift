@@ -72,12 +72,13 @@ class AppStore: Store {
     func loadContent() async {
         isLoadingContent = true
         defer { isLoadingContent = false }
+        videoManager.cleanup()
         
-        // 1) Pause the current video if we have a valid index
-        if currentIndex >= 0, currentIndex < contentItems.count {
-            let oldUrl = contentItems[currentIndex].videoUrl
-            videoManager.pause(url: oldUrl)
-        }
+        // // 1) Pause the current video if we have a valid index
+        // if currentIndex >= 0, currentIndex < contentItems.count {
+        //     let oldUrl = contentItems[currentIndex].videoUrl
+        //     videoManager.pause(url: oldUrl)
+        // }
         
         guard let neighborhood = selectedNeighborhood else {
             contentItems = []

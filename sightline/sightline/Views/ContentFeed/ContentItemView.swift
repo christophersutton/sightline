@@ -97,7 +97,7 @@ struct ContentItemView: View {
             videoManager.play(url: content.videoUrl)
         }
         .onDisappear {
-            videoManager.pause()
+            videoManager.pause(url: content.videoUrl)
         }
     }
 }

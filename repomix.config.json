@@ -7,6 +7,6 @@
     "topFilesLength": 10
   },
   "ignore": {
-    "customPatterns": ["_docs/**"]
+    "customPatterns": ["_docs/**", "sightline/sightline/Assets.xcassets/**","firebase/**","sightline.xcodeproj/**"]
   }
 }
