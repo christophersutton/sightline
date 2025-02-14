@@ -1,4 +1,3 @@
-// sightline/sightline/Services/VideoPlayerManager.swift
 import AVFoundation
 import Combine
 import SwiftUI
@@ -93,9 +92,20 @@ final class VideoPlayerManager: ObservableObject {
 
     func pause() {
         currentPlayer?.pause()
-        print("⏸️ Paused playback")
+        print("⏸️ Paused current playback")
     }
 
+    /// Pause a specific URL if it's preloaded/playing
+    func pause(url: String) {
+        if let player = preloadedPlayers[url] {
+            player.pause()
+            if currentlyPlayingUrl == url {
+                currentPlayer = nil
+                currentlyPlayingUrl = nil
+            }
+            print("⏸️ Paused playback for URL: \(url)")
+        }
+    }
 
     func preloadVideos(for urls: [String], at index: Int) {
         // Cancel any existing preload tasks that are no longer needed
@@ -109,12 +119,12 @@ final class VideoPlayerManager: ObservableObject {
             let url = urls[i]
             if preloadedPlayers[url] == nil && preloadTasks[url] == nil {
                 preloadTasks[url] = Task {
-                    await preparePlayer(for: url) // Use preparePlayer, not play
+                    await preparePlayer(for: url)
                 }
             }
         }
     }
-    
+
     // Helper function to wait until the AVPlayerItem is ready to play
     private func waitUntilPlayerItemReady(_ item: AVPlayerItem) async throws {
         while item.status != .readyToPlay {
@@ -151,7 +161,7 @@ final class VideoPlayerManager: ObservableObject {
         currentPlayer = nil
         currentlyPlayingUrl = nil
         error = nil
-        isLoading = false // Reset loading state
+        isLoading = false
         cancellables.removeAll()
     }
 

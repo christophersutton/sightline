@@ -2,21 +2,21 @@ import SwiftUI
 import UIKit
 
 struct VerticalFeedView<Content: View>: UIViewControllerRepresentable {
+    /// The closure now has two parameters: (newIndex, oldIndex).
+    let onIndexChanged: (Int, Int) -> Void
     let content: (Int) -> Content
     
     @Binding var currentIndex: Int
     let itemCount: Int
     
-    // Newly added feedVersion. If it changes, we'll force a reload.
+    // feedVersion triggers a forced refresh if changed
     let feedVersion: Int
-    
-    let onIndexChanged: (Int) -> Void
     
     init(
         currentIndex: Binding<Int>,
         itemCount: Int,
         feedVersion: Int,
-        onIndexChanged: @escaping (Int) -> Void,
+        onIndexChanged: @escaping (Int, Int) -> Void,
         @ViewBuilder content: @escaping (Int) -> Content
     ) {
         self._currentIndex = currentIndex
@@ -55,16 +55,15 @@ struct VerticalFeedView<Content: View>: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIPageViewController, context: Context) {
         let coordinator = context.coordinator
         
-        // Add bounds checking
+        // Ensure currentIndex is within bounds
         guard currentIndex >= 0 && currentIndex < itemCount else {
-            // Reset to a valid index if out of bounds
             DispatchQueue.main.async {
                 self.currentIndex = max(0, min(self.itemCount - 1, self.currentIndex))
             }
             return
         }
         
-        // 1) If feedVersion changes, forcibly reload everything to show new content
+        // If feedVersion changed, forcibly reload
         if coordinator.feedVersion != feedVersion {
             coordinator.feedVersion = feedVersion
             coordinator.hostingControllers.removeAll()
@@ -75,17 +74,19 @@ struct VerticalFeedView<Content: View>: UIViewControllerRepresentable {
             return
         }
         
-        // 2) If user swiped to change currentIndex, update the displayed controller
+        // If the user scrolled or we programmatically changed currentIndex
         if coordinator.currentIndex != currentIndex {
-            let newVC = coordinator.hostingController(for: currentIndex)
             let direction: UIPageViewController.NavigationDirection =
                 coordinator.currentIndex > currentIndex ? .reverse : .forward
-            
-            // Only animate if the user moved 1 step
+            let newVC = coordinator.hostingController(for: currentIndex)
             let shouldAnimate = abs(coordinator.currentIndex - currentIndex) <= 1
             uiViewController.setViewControllers([newVC], direction: direction, animated: shouldAnimate)
             
+            // Now update coordinator
+            let oldIndex = coordinator.currentIndex
             coordinator.currentIndex = currentIndex
+            // Fire the callback so we can handle pause logic, etc.
+            onIndexChanged(currentIndex, oldIndex)
         }
     }
     
@@ -104,31 +105,26 @@ struct VerticalFeedView<Content: View>: UIViewControllerRepresentable {
         }
         
         func hostingController(for index: Int) -> UIHostingController<AnyView> {
-            // If out of bounds, show a blank view
             guard index >= 0 && index < parent.itemCount else {
                 return UIHostingController(rootView: AnyView(Color.black))
             }
-            if let existingController = hostingControllers[index] {
-                return existingController
+            if let existing = hostingControllers[index] {
+                return existing
             }
-            // Build a new hosting controller for this index
-            let view = AnyView(
+            let newView = AnyView(
                 parent.content(index)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.black)
             )
-            let controller = UIHostingController(rootView: view)
+            let controller = UIHostingController(rootView: newView)
             controller.view.backgroundColor = .clear
             hostingControllers[index] = controller
-            
-            // Clean up distant pages for memory usage
             cleanupDistantControllers(from: index)
-            
             return controller
         }
         
         private func cleanupDistantControllers(from currentIndex: Int) {
-            // Keep only a few pages around (the current, plus some near neighbors)
+            // Keep a small window of pages around
             let keepRange = (currentIndex - 2)...(currentIndex + 2)
             hostingControllers = hostingControllers.filter { keepRange.contains($0.key) }
         }
@@ -154,12 +150,15 @@ struct VerticalFeedView<Content: View>: UIViewControllerRepresentable {
                                 previousViewControllers: [UIViewController],
                                 transitionCompleted completed: Bool) {
             guard completed,
-                  let visibleViewController = pageViewController.viewControllers?.first,
-                  let index = hostingControllers.first(where: { $0.value == visibleViewController })?.key
+                  let visibleVC = pageViewController.viewControllers?.first,
+                  let newIndex = hostingControllers.first(where: { $0.value == visibleVC })?.key
             else { return }
             
-            currentIndex = index
-            parent.onIndexChanged(index)
+            let oldIndex = currentIndex
+            currentIndex = newIndex
+            
+            // Fire the callback to the parent
+            parent.onIndexChanged(newIndex, oldIndex)
         }
     }
 }

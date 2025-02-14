@@ -53,15 +53,21 @@ struct ContentFeedView: View {
             currentIndex: $appStore.currentIndex,
             itemCount: appStore.contentItems.count,
             feedVersion: appStore.feedVersion,
-            onIndexChanged: { index in
-                if index >= 0 && index < appStore.contentItems.count {
-                    appStore.currentIndex = index
+            onIndexChanged: { newIndex, oldIndex in
+                // 1) Pause the old video if it's valid
+                if oldIndex >= 0, oldIndex < appStore.contentItems.count {
+                    let oldVideoUrl = appStore.contentItems[oldIndex].videoUrl
+                    appStore.videoManager.pause(url: oldVideoUrl)
                 }
+                
+                // 2) Update the store’s currentIndex
+                appStore.currentIndex = newIndex
             }
         ) { index in
+            // Provide the ContentItemView
             if index >= 0 && index < appStore.contentItems.count {
                 let content = appStore.contentItems[index]
-              ContentItemView(content: content, appStore: appStore)
+                ContentItemView(content: content, appStore: appStore)
                     .environmentObject(appStore)
                     .onTapGesture {
                         if let placeId = content.placeIds.first {

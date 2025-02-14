@@ -12,10 +12,9 @@ class AppStore: Store {
     @Published var places: [String: Place] = [:]
     
     // We track the current selected neighborhood/category.
-    // Changing them triggers loadContent().
     @Published var selectedNeighborhood: Neighborhood? {
         didSet {
-            // Clear feed on neighborhood change
+            // If neighborhood changes, we can reset the feed
             currentIndex = 0
             Task {
                 await loadContent()
@@ -24,7 +23,7 @@ class AppStore: Store {
     }
     @Published var selectedCategory: FilterCategory = .restaurant {
         didSet {
-            // Clear feed on category change
+            // If category changes, we can reset the feed
             currentIndex = 0
             Task {
                 await loadContent()
@@ -39,8 +38,6 @@ class AppStore: Store {
     let videoManager = VideoPlayerManager()
     
     // A version integer that increments whenever new content is loaded.
-    // We’ll pass this to the feed so that it reloads if the underlying data changes,
-    // even if the item count is the same.
     @Published var feedVersion: Int = 0
     
     func loadUnlockedNeighborhoods() async {
@@ -71,11 +68,18 @@ class AppStore: Store {
     }
     
     func loadContent() async {
+        // 1) Pause the current video if we have a valid index
+        if currentIndex >= 0, currentIndex < contentItems.count {
+            let oldUrl = contentItems[currentIndex].videoUrl
+            videoManager.pause(url: oldUrl)
+        }
+        
         guard let neighborhood = selectedNeighborhood else {
             contentItems = []
             places = [:]
             return
         }
+        
         do {
             // Make sure we have categories
             await loadAvailableCategories()
@@ -107,7 +111,7 @@ class AppStore: Store {
                 videoManager.preloadVideos(for: urls, at: 0)
             }
             
-            // Increment feedVersion so that the UI can refresh even if the item count doesn’t change
+            // Increment feedVersion so the UI reloads if data changes
             feedVersion += 1
         } catch {
             print("Error loading content: \(error)")
