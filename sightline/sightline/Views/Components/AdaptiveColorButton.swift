@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 struct AdaptiveColorButton<Label: View>: View {
     let action: () -> Void
@@ -8,7 +7,7 @@ struct AdaptiveColorButton<Label: View>: View {
     let expandHorizontally: Bool
 
     init(
-        isSelected: Bool,
+        isSelected: Bool = false,
         expandHorizontally: Bool = false,
         action: @escaping () -> Void,
         @ViewBuilder label: @escaping () -> Label
@@ -26,105 +25,29 @@ struct AdaptiveColorButton<Label: View>: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .frame(height: 36)
-                .background(.ultraThinMaterial)
+                .background(.thinMaterial)
                 .cornerRadius(8)
                 .fixedSize(horizontal: !expandHorizontally, vertical: false)
         }
-        .scaleEffect(isSelected ? 0.98 : 1.0)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
-    }
-}
-
-// [The rest of the file remains unchanged below...]
-private struct ColorPreferenceKey: PreferenceKey {
-    static var defaultValue: CGRect = .zero
-    
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        value = nextValue()
-    }
-}
-
-extension UIImage {
-    func cropToFrame(_ frame: CGRect) -> UIImage {
-        guard let cgImage = self.cgImage else { return self }
-        let scaledFrame = CGRect(
-            x: frame.origin.x * scale,
-            y: frame.origin.y * scale,
-            width: frame.width * scale,
-            height: frame.height * scale
-        )
-        guard let croppedCGImage = cgImage.cropping(to: scaledFrame) else { return self }
-        return UIImage(cgImage: croppedCGImage)
-    }
-    
-    func averageColor() -> UIColor {
-        guard let inputImage = CIImage(image: self) else { return .white }
-        let extentVector = CIVector(x: inputImage.extent.origin.x,
-                                  y: inputImage.extent.origin.y,
-                                  z: inputImage.extent.size.width,
-                                  w: inputImage.extent.size.height)
-
-        guard let filter = CIFilter(name: "CIAreaAverage",
-                                  parameters: [kCIInputImageKey: inputImage,
-                                             kCIInputExtentKey: extentVector]) else { return .white }
-        guard let outputImage = filter.outputImage else { return .white }
-
-        var bitmap = [UInt8](repeating: 0, count: 4)
-        let context = CIContext(options: [.workingColorSpace: kCFNull as Any])
-        context.render(outputImage,
-                      toBitmap: &bitmap,
-                      rowBytes: 4,
-                      bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
-                      format: .RGBA8,
-                      colorSpace: nil)
-
-        return UIColor(red: CGFloat(bitmap[0]) / 255,
-                      green: CGFloat(bitmap[1]) / 255,
-                      blue: CGFloat(bitmap[2]) / 255,
-                      alpha: CGFloat(bitmap[3]) / 255)
-    }
-}
-
-extension UIColor {
-    func getBrightness() -> CGFloat {
-        var red: CGFloat = 0
-        var green: CGFloat = 0
-        var blue: CGFloat = 0
-        var alpha: CGFloat = 0
-        
-        getRed(&red, green: &green, blue: &blue, alpha: &alpha)
-        
-        // Using perceived brightness formula
-        return ((red * 299) + (green * 587) + (blue * 114)) / 1000
     }
 }
 
 #Preview {
     VStack(spacing: 20) {
-        // Default state
-        AdaptiveColorButton(isSelected: false) {
-            
+        AdaptiveColorButton {
+            print("Tapped")
         } label: {
             Text("Default Button")
         }
         
-        // Selected state
-        AdaptiveColorButton(isSelected: true) {
-            
+        AdaptiveColorButton(expandHorizontally: true) {
+            print("Tapped")
         } label: {
-            Text("Selected Button")
+            Text("Expanded Button")
         }
         
-        // Long text
-        AdaptiveColorButton(isSelected: false) {
-            
-        } label: {
-            Text("Button with Longer Text")
-        }
-        
-        // With SF Symbol
-        AdaptiveColorButton(isSelected: false) {
-            
+        AdaptiveColorButton {
+            print("Tapped")
         } label: {
             HStack {
                 Image(systemName: "star.fill")
@@ -133,6 +56,6 @@ extension UIColor {
         }
     }
     .padding()
-    .frame(maxWidth: .infinity)  // <-- Add this to show alignment
-    .background(Color.black) // Dark background to match app context
+    .frame(maxWidth: .infinity)
+    .background(Color.black)
 }
