@@ -3,14 +3,15 @@ import FirebaseCore
 // Make sure SplashView is accessible
 import FirebaseAuth
 
+// sightline/sightline/sightlineApp.swift
 @main
 struct SightlineApp: App {
-    @StateObject private var appState = AppState()
-    @StateObject private var appViewModel = AppViewModel()
+    @StateObject private var appStore = AppStore() // Use StateObject here
+    @StateObject private var profileStore = ProfileStore()
+    @StateObject private var landmarkDetectionStore = LandmarkDetectionStore()
     @State private var showingSplash = true
-    
+
     init() {
-        // Configure Firebase when the app starts.
         FirebaseApp.configure()
     }
 
@@ -18,13 +19,15 @@ struct SightlineApp: App {
         WindowGroup {
             ZStack {
                 MainTabView()
-                    .environmentObject(appState)
+                    .environmentObject(appStore)  // Inject the AppStore
+                    .environmentObject(profileStore)
+                    .environmentObject(landmarkDetectionStore)
                     .task {
                         // First sign in
                         do {
                             try await ServiceContainer.shared.auth.signInAnonymously()
                             // Then preload data
-                            await appViewModel.preloadAppData()
+                            await appStore.loadUnlockedNeighborhoods()
                             // Only hide splash after preloading is done
                             withAnimation {
                                 showingSplash = false
@@ -35,12 +38,9 @@ struct SightlineApp: App {
                             showingSplash = false
                         }
                     }
-                
                 if showingSplash {
-                    SplashView {
-                        // Empty closure since we're handling dismiss in task
-                    }
-                    .transition(.opacity)
+                    SplashView{}
+                        .transition(.opacity)
                 }
             }
         }

@@ -154,25 +154,30 @@ struct CameraPreviewView: UIViewRepresentable {
 }
 
 // Updated CameraView with flash overlay effect added.
+// sightline/sightline/Views/CameraView.swift
+import SwiftUI
+import AVFoundation
+import CoreHaptics
+
 struct CameraView: View {
     @StateObject private var cameraController = CameraController()
     @Environment(\.dismiss) private var dismiss
     var onFrameCaptured: (UIImage) -> Void
     @Binding var shouldFlash: Bool
-    
+
     @State private var flashOverlayOpacity: Double = 0.0
-    @EnvironmentObject var viewModel: LandmarkDetectionViewModel
+    @EnvironmentObject var landmarkDetectionStore: LandmarkDetectionStore // Use the store
     @State private var hapticEngine: CHHapticEngine?
     @State private var successMessage: String?
     @Namespace private var namespace
-    
+
     var body: some View {
         GeometryReader { geometry in
             ZStack {
                 if let session = cameraController.captureSession {
                     CameraPreviewView(session: session)
-                    
-                    // Status Messages
+
+                    // Status Messages (Modified for LandmarkDetectionStore)
                     if let message = successMessage {
                         Text(message)
                             .foregroundColor(.white)
@@ -187,14 +192,14 @@ struct CameraView: View {
                             .background(Color.black.opacity(0.7))
                             .cornerRadius(10)
                     }
-                    
-                    // Flash overlay effect
+
+                    // Flash overlay effect (Keep this)
                     Color.white
                         .opacity(flashOverlayOpacity)
                         .ignoresSafeArea()
-                    
-                    // Scanning Animation
-                    if cameraController.isCapturing && !shouldFlash && !viewModel.isCapturing {
+
+                    // Scanning Animation (Modified for LandmarkDetectionStore)
+                    if cameraController.isCapturing && !shouldFlash && !landmarkDetectionStore.isCapturing {
                         ScanningAnimation(namespace: namespace)
                             .ignoresSafeArea()
                     }
@@ -215,13 +220,13 @@ struct CameraView: View {
             }
             .onAppear {
                 prepareHaptics()
-                viewModel.startCapture()
+                landmarkDetectionStore.startCapture() // Use store's method
                 cameraController.startCapturing(
                     onFrameCaptured: { image in
                         onFrameCaptured(image)
                     },
                     onCaptureCompleted: {
-                        viewModel.captureCompleted()
+                        landmarkDetectionStore.captureCompleted() // Use store's method
                     }
                 )
             }
@@ -230,10 +235,10 @@ struct CameraView: View {
             }
         }
     }
-    
+
     private func prepareHaptics() {
         guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
-        
+
         do {
             hapticEngine = try CHHapticEngine()
             try hapticEngine?.start()
@@ -241,16 +246,16 @@ struct CameraView: View {
             print("Haptics error: \(error)")
         }
     }
-    
+
     private func playHapticSuccess() {
         guard CHHapticEngine.capabilitiesForHardware().supportsHaptics,
               let engine = hapticEngine else { return }
-        
+
         do {
             let intensity = CHHapticEventParameter(parameterID: .hapticIntensity, value: 1.0)
             let sharpness = CHHapticEventParameter(parameterID: .hapticSharpness, value: 1.0)
             let event = CHHapticEvent(eventType: .hapticTransient, parameters: [intensity, sharpness], relativeTime: 0)
-            
+
             let pattern = try CHHapticPattern(events: [event], parameters: [])
             let player = try engine.makePlayer(with: pattern)
             try player.start(atTime: 0)

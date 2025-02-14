@@ -4,8 +4,15 @@ import FirebaseFirestore
 import FirebaseAuth
 import os
 
+// Add this enum near the top of the file
+enum PlaceDetailMode {
+    case discovery   // Default mode when discovering new places
+    case review     // Mode when viewing from profile/saved places
+}
+
 struct PlaceDetailView: View {
     let placeId: String
+    let mode: PlaceDetailMode  // Add this property
     @StateObject private var viewModel: PlaceDetailViewModel
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var appState: AppState  // for navigation
@@ -22,10 +29,13 @@ struct PlaceDetailView: View {
     // Add error state
     @State private var showError = false
 
+    @State private var showingVideoCapture = false  // Add this
+
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Sightline", category: "PlaceDetailView")
 
-    init(placeId: String) {
+    init(placeId: String, mode: PlaceDetailMode = .discovery) {  // Update initializer
         self.placeId = placeId
+        self.mode = mode
         _viewModel = StateObject(wrappedValue: PlaceDetailViewModel())
     }
 
@@ -59,6 +69,15 @@ struct PlaceDetailView: View {
         .opacity(viewModel.place == nil ? 0.6 : 1.0)
     }
     
+    var actionButton: some View {
+        switch mode {
+        case .discovery:
+            return savePlaceButton
+        case .review:
+            return leaveReviewButton
+        }
+    }
+    
     var savePlaceButton: some View {
         Button(action: {
             Task {
@@ -80,6 +99,27 @@ struct PlaceDetailView: View {
         }
         .disabled(viewModel.place == nil)
         .opacity(viewModel.place == nil ? 0.6 : 1.0)
+    }
+
+    var leaveReviewButton: some View {
+        Button(action: {
+            showingVideoCapture = true
+        }) {
+            HStack {
+                Image(systemName: "video.fill")
+                Text("Record Review")
+            }
+            .foregroundColor(.white)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 24)
+            .background(Color.orange)
+            .cornerRadius(10)
+        }
+        .disabled(viewModel.place == nil)
+        .opacity(viewModel.place == nil ? 0.6 : 1.0)
+        .fullScreenCover(isPresented: $showingVideoCapture) {
+            VideoCaptureView(placeId: placeId)
+        }
     }
 
     var mapView: some View {
@@ -148,7 +188,7 @@ struct PlaceDetailView: View {
                     mapView
                     
                     directionsButton
-                    savePlaceButton
+                    actionButton
                 }
             }
             .frame(maxWidth: geometry.size.width)
