@@ -11,6 +11,7 @@ final class VideoPlayerManager: ObservableObject {
     @Published private(set) var currentPlayer: AVPlayer?
     @Published private(set) var isLoading = false
     @Published private(set) var error: Error?
+    @Published private(set) var readyPlayerUrls: Set<String> = []
 
     private var playerLooper: AVPlayerLooper?
     private var cancellables = Set<AnyCancellable>()
@@ -54,7 +55,8 @@ final class VideoPlayerManager: ObservableObject {
             // Wait until the player item is ready before storing
             try await waitUntilPlayerItemReady(item)
 
-            preloadedPlayers[url] = player // Store the prepared player
+            preloadedPlayers[url] = player
+            readyPlayerUrls.insert(url)
             isLoading = false
             print("✅ Prepared player for URL: \(url)")
 
@@ -69,21 +71,21 @@ final class VideoPlayerManager: ObservableObject {
     func play(url: String) {
         print("🎬 Starting playback for URL: \(url)")
 
-        if let player = preloadedPlayers[url] {
+        if let player = preloadedPlayers[url], readyPlayerUrls.contains(url) {
             currentPlayer = player
             currentlyPlayingUrl = url
-            player.seek(to: .zero) // Ensure it starts from the beginning
+            player.seek(to: .zero)
             player.play()
             print("✅ Playing from preloaded player")
         } else {
             print("⚠️ No preloaded player, preparing and playing")
-            // Prepare and play directly
             Task {
-                await preparePlayer(for: url) // preparePlayer now creates AND stores the player
-                if let player = preloadedPlayers[url] {
+                await preparePlayer(for: url)
+                // Check again after preparation
+                if let player = preloadedPlayers[url], readyPlayerUrls.contains(url) {
                     currentPlayer = player
                     currentlyPlayingUrl = url
-                    player.play() // Play immediately after preparing
+                    player.play()
                 }
             }
         }
@@ -130,10 +132,12 @@ final class VideoPlayerManager: ObservableObject {
     }
 
     func playerFor(url: String) -> AVPlayer? {
+        // First check if this is the current playing video
         if url == currentlyPlayingUrl {
             return currentPlayer
         }
-        return preloadedPlayers[url]
+        // Then check preloaded players
+        return readyPlayerUrls.contains(url) ? preloadedPlayers[url] : nil
     }
 
     private func getDownloadURL(for gsUrl: String) async throws -> URL {
@@ -159,6 +163,7 @@ final class VideoPlayerManager: ObservableObject {
         preloadedPlayers.removeAll()
         preloadedVideosQueue.removeAll()
         preloadTasks.removeAll()
+        readyPlayerUrls.removeAll()
         print("Cleared video cache")
     }
 }

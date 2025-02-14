@@ -10,10 +10,18 @@ struct ContentItemView: View {
     @State private var showingPlaceDetail = false
     @Environment(\.safeAreaInsets) private var safeAreaInsets
     
+    // Add explicit observation of the video manager
+    @ObservedObject private var videoManager: VideoPlayerManager
+    
+    init(content: Content, appStore: AppStore) {
+        self.content = content
+        self.videoManager = appStore.videoManager
+    }
+    
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                if let player = appStore.videoManager.playerFor(url: content.videoUrl) {
+                if let player = videoManager.playerFor(url: content.videoUrl) {
                     // Show the video once we have a player
                     VideoPlayer(player: player)
                         .edgesIgnoringSafeArea(.all)
@@ -22,7 +30,7 @@ struct ContentItemView: View {
                             height: geo.size.height + safeAreaInsets.top + safeAreaInsets.bottom
                         )
                         .offset(y: -safeAreaInsets.top)
-                } else if appStore.videoManager.error != nil {
+                } else if videoManager.error != nil {
                     // Show an error indicator if needed
                     Color.black
                     VStack {
@@ -86,17 +94,10 @@ struct ContentItemView: View {
         }
         // When this view appears, ensure the correct video is played
         .onAppear {
-            // If the player is not preloaded, let's prepare and play
-            if appStore.videoManager.playerFor(url: content.videoUrl) == nil {
-                appStore.videoManager.play(url: content.videoUrl)
-            } else {
-                // If already preloaded, just call play
-                appStore.videoManager.play(url: content.videoUrl)
-            }
+            videoManager.play(url: content.videoUrl)
         }
         .onDisappear {
-            // Pause the player when scrolled away
-            appStore.videoManager.pause()
+            videoManager.pause()
         }
     }
 }

@@ -61,7 +61,7 @@ struct ContentFeedView: View {
         ) { index in
             if index >= 0 && index < appStore.contentItems.count {
                 let content = appStore.contentItems[index]
-                ContentItemView(content: content)
+              ContentItemView(content: content, appStore: appStore)
                     .environmentObject(appStore)
                     .onTapGesture {
                         if let placeId = content.placeIds.first {

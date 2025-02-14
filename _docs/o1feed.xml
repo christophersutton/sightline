@@ -1,406 +1,114 @@
 <Plan>
-We’ll introduce a simple “feedVersion” integer in the AppStore, increment it whenever new content is loaded, and pass it into VerticalFeedView. If feedVersion changes, we’ll force the feed view controller to reload. This ensures that even if the item count doesn’t change, newly loaded content still appears.
+We suspect the video is not showing because of the complex offset and frame calculations in ContentItemView. The audio plays, indicating the player is loaded, but the VideoPlayer likely ends up outside the visible area. 
+
+Below is a full rewrite of ContentItemView.swift removing the offset and extra safeAreaInsets logic. We use a simpler approach: 
+1) Ensure VideoPlayer is sized to fill the parent geometry. 
+2) Remove the negative offset that might push the video out of view. 
+3) Keep the overlay and the place detail sheet.
+
+This should fix the issue of audio playing but no visible video.
 </Plan>
 
-<file path="sightline/sightline/Stores/AppStore.swift" action="rewrite">
+<file path="sightline/sightline/Views/ContentFeed/ContentItemView.swift" action="rewrite">
   <change>
-    <description>Add a feedVersion counter that increments after loading new content.</description>
-    <content>
-===
-import Combine
-import FirebaseFirestore
-import SwiftUI
-
-@MainActor
-class AppStore: Store {
-    private let services = ServiceContainer.shared
-    
-    @Published var unlockedNeighborhoods: [Neighborhood] = []
-    @Published var availableCategories: [FilterCategory] = []
-    @Published var contentItems: [Content] = []
-    @Published var places: [String: Place] = [:]
-    
-    // We track the current selected neighborhood/category.
-    // Changing them triggers loadContent().
-    @Published var selectedNeighborhood: Neighborhood? {
-        didSet {
-            // Clear feed on neighborhood change
-            currentIndex = 0
-            Task {
-                await loadContent()
-            }
-        }
-    }
-    @Published var selectedCategory: FilterCategory = .restaurant {
-        didSet {
-            // Clear feed on category change
-            currentIndex = 0
-            Task {
-                await loadContent()
-            }
-        }
-    }
-    
-    // Track the current index in the feed
-    @Published var currentIndex: Int = 0
-    
-    // Video manager for playing content
-    let videoManager = VideoPlayerManager()
-    
-    // A version integer that increments whenever new content is loaded.
-    // We’ll pass this to the feed so that it reloads if the underlying data changes,
-    // even if the item count is the same.
-    @Published var feedVersion: Int = 0
-    
-    func loadUnlockedNeighborhoods() async {
-        do {
-            let neighborhoods = try await services.neighborhood.fetchUnlockedNeighborhoods()
-            unlockedNeighborhoods = neighborhoods
-            if selectedNeighborhood == nil ||
-                !neighborhoods.contains(where: { $0.id == selectedNeighborhood?.id }) {
-                selectedNeighborhood = neighborhoods.first
-            }
-        } catch {
-            print("Error loading neighborhoods: \(error)")
-        }
-    }
-    
-    func loadAvailableCategories() async {
-        guard let neighborhood = selectedNeighborhood else { return }
-        do {
-            let categories = try await services.neighborhood.fetchAvailableCategories(neighborhoodId: neighborhood.id!)
-            availableCategories = categories
-            
-            if !categories.contains(selectedCategory) && !categories.isEmpty {
-                selectedCategory = categories[0]
-            }
-        } catch {
-            print("Error loading categories: \(error)")
-        }
-    }
-    
-    func loadContent() async {
-        guard let neighborhood = selectedNeighborhood else {
-            contentItems = []
-            places = [:]
-            return
-        }
-        do {
-            // Make sure we have categories
-            await loadAvailableCategories()
-            
-            // Fetch content for the selected neighborhood + category
-            let fetchedContent = try await services.content.fetchContent(
-                neighborhoodId: neighborhood.id!,
-                category: selectedCategory
-            )
-            
-            // Fill place data for each piece of content
-            var placeMap: [String: Place] = [:]
-            for item in fetchedContent {
-                for placeId in item.placeIds {
-                    if places[placeId] == nil && placeMap[placeId] == nil {
-                        if let place = try? await services.place.fetchPlace(id: placeId) {
-                            placeMap[placeId] = place
-                        }
-                    }
-                }
-            }
-            
-            contentItems = fetchedContent
-            places.merge(placeMap) { (_, new) in new }
-            
-            // Preload videos for the first item
-            if !contentItems.isEmpty {
-                let urls = contentItems.map { $0.videoUrl }
-                videoManager.preloadVideos(for: urls, at: 0)
-            }
-            
-            // Increment feedVersion so that the UI can refresh even if the item count doesn’t change
-            feedVersion += 1
-        } catch {
-            print("Error loading content: \(error)")
-            contentItems = []
-            places = [:]
-        }
-    }
-}
-===
-    </content>
-  </change>
-</file>
-
-<file path="sightline/sightline/Views/ContentFeed/ContentFeedView.swift" action="rewrite">
-  <change>
-    <description>Pass the new feedVersion to VerticalFeedView so it can reload on content changes.</description>
+    <description>Remove custom offset and simplify layout so the video displays properly</description>
     <content>
 ===
 import SwiftUI
-import UIKit
+import AVKit
+import FirebaseStorage
 
-struct ContentFeedView: View {
+struct ContentItemView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var appStore: AppStore
-    
-    @State private var showingNeighborhoods = false
-    @State private var showingCategories = false
-    @State private var selectedPlaceId: String? = nil
+    let content: Content
+
+    @State private var showingPlaceDetail = false
 
     var body: some View {
-        ZStack(alignment: .top) {
-            Color.black.ignoresSafeArea()
-            
-            contentDisplay
-                .zIndex(0)
-            
-            menuBar
-                .zIndex(2)
-        }
-        // Display place detail in a sheet when tapped
-        .sheet(item: Binding(
-            get: { selectedPlaceId.map { PlaceDetailPresentation(placeId: $0) } },
-            set: { presentation in selectedPlaceId = presentation?.placeId }
-        )) {
-            presentation in
-            PlaceDetailView(placeId: presentation.placeId)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-                .presentationBackgroundInteraction(.enabled)
-        }
-        .task {
-            // Load unlocked neighborhoods once
-            await appStore.loadUnlockedNeighborhoods()
-        }
-    }
-
-    @ViewBuilder
-    private var contentDisplay: some View {
-        if appStore.unlockedNeighborhoods.isEmpty {
-            EmptyNeighborhoodState()
-        } else if appStore.contentItems.isEmpty {
-            Text("No content available")
-                .foregroundColor(.white)
-        } else {
-            feedView
-        }
-    }
-
-    private var feedView: some View {
-        VerticalFeedView(
-            currentIndex: $appStore.currentIndex,
-            itemCount: appStore.contentItems.count,
-            feedVersion: appStore.feedVersion,  // pass the new version property
-            onIndexChanged: { index in
-                appStore.currentIndex = index
-            }
-        ) { index in
-            let content = appStore.contentItems[index]
-            ContentItemView(content: content)
-                .environmentObject(appStore)
-                .onTapGesture {
-                    // If user taps, open place detail for the first place in the array
-                    if let placeId = content.placeIds.first {
-                        selectedPlaceId = placeId
+        GeometryReader { geo in
+            ZStack {
+                if let player = appStore.videoManager.playerFor(url: content.videoUrl) {
+                    // Show the video once we have a valid player
+                    VideoPlayer(player: player)
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .clipped()
+                        // Fill edges for a fullscreen effect
+                        .edgesIgnoringSafeArea(.all)
+                } else if appStore.videoManager.error != nil {
+                    // Show an error indicator
+                    Color.black
+                    VStack {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.largeTitle)
+                            .foregroundColor(.yellow)
+                        Text("Failed to load video")
+                            .foregroundColor(.white)
                     }
+                } else {
+                    // Show a spinner until the manager finishes preparing
+                    Color.black
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .tint(.white)
                 }
-        }
-        .ignoresSafeArea()
-    }
 
-    private var menuBar: some View {
-        HStack(alignment: .top) {
-            NeighborhoodSelectorView(
-                selectedNeighborhood: $appStore.selectedNeighborhood,
-                isExpanded: $showingNeighborhoods,
-                onExploreMore: { appState.shouldSwitchToDiscover = true },
-                onNeighborhoodSelected: { Task { await appStore.loadContent() } }
-            )
-            
-            Spacer()
-            
-            if let neighborhoodId = appStore.selectedNeighborhood?.id {
-                CategorySelectorView(
-                    selectedCategory: $appStore.selectedCategory,
-                    isExpanded: $showingCategories,
-                    onCategorySelected: { Task { await appStore.loadContent() } }
-                )
-                .id(neighborhoodId)
+                // Overlay content details near the bottom
+                VStack {
+                    Spacer()
+                    HStack {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(content.caption)
+                                .font(.headline)
+                                .foregroundColor(.white)
+                                .multilineTextAlignment(.leading)
+
+                            Button {
+                                showingPlaceDetail = true
+                            } label: {
+                                Text(appStore.places[content.placeIds.first ?? ""]?.name ?? "Loading place...")
+                                    .font(.subheadline)
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(.ultraThinMaterial)
+                                    .cornerRadius(16)
+                            }
+                        }
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom, 100) // move up from bottom
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [.clear, .black.opacity(0.4)]),
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .edgesIgnoringSafeArea(.bottom)
+                    )
+                }
+            }
+        }
+        .sheet(isPresented: $showingPlaceDetail) {
+            if let firstPlaceId = content.placeIds.first {
+                PlaceDetailView(placeId: firstPlaceId, mode: .discovery)
+                    .presentationDetents([.fraction(0.75), .large])
+                    .presentationDragIndicator(.visible)
+            }
+        }
+        .onAppear {
+            // If no preloaded player, prepare & play, otherwise just play
+            if appStore.videoManager.playerFor(url: content.videoUrl) == nil {
+                appStore.videoManager.play(url: content.videoUrl)
             } else {
-                Text("Select a neighborhood").foregroundColor(.white)
+                appStore.videoManager.play(url: content.videoUrl)
             }
         }
-        .padding(.top, 24)
-        .padding(.horizontal, 16)
-    }
-}
-
-struct PlaceDetailPresentation: Identifiable {
-    let id = UUID()
-    let placeId: String
-}
-===
-    </content>
-  </change>
-</file>
-
-<file path="sightline/sightline/Views/ContentFeed/VerticalFeedView.swift" action="rewrite">
-  <change>
-    <description>Force reloading if feedVersion changes, so the feed always updates on new content.</description>
-    <content>
-===
-import SwiftUI
-import UIKit
-
-struct VerticalFeedView<Content: View>: UIViewControllerRepresentable {
-    let content: (Int) -> Content
-    
-    @Binding var currentIndex: Int
-    let itemCount: Int
-    
-    // Newly added feedVersion. If it changes, we’ll force a reload.
-    let feedVersion: Int
-    
-    let onIndexChanged: (Int) -> Void
-    
-    init(
-        currentIndex: Binding<Int>,
-        itemCount: Int,
-        feedVersion: Int,
-        onIndexChanged: @escaping (Int) -> Void,
-        @ViewBuilder content: @escaping (Int) -> Content
-    ) {
-        self._currentIndex = currentIndex
-        self.itemCount = itemCount
-        self.feedVersion = feedVersion
-        self.onIndexChanged = onIndexChanged
-        self.content = content
-    }
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-    
-    func makeUIViewController(context: Context) -> UIPageViewController {
-        let controller = UIPageViewController(
-            transitionStyle: .scroll,
-            navigationOrientation: .vertical,
-            options: [.interPageSpacing: 0]
-        )
-        controller.dataSource = context.coordinator
-        controller.delegate = context.coordinator
-        controller.view.backgroundColor = .black
-        
-        // Disable system gestures that might interfere
-        controller.view.gestureRecognizers?.forEach { gesture in
-            (gesture as? UIScreenEdgePanGestureRecognizer)?.isEnabled = false
-        }
-        
-        // Set the initial view controller
-        let hostingController = context.coordinator.hostingController(for: currentIndex)
-        controller.setViewControllers([hostingController], direction: .forward, animated: false)
-        
-        return controller
-    }
-    
-    func updateUIViewController(_ uiViewController: UIPageViewController, context: Context) {
-        let coordinator = context.coordinator
-        
-        // 1) If feedVersion changes, forcibly reload everything to show new content
-        if coordinator.feedVersion != feedVersion {
-            coordinator.feedVersion = feedVersion
-            coordinator.hostingControllers.removeAll()
-            
-            let newVC = coordinator.hostingController(for: currentIndex)
-            uiViewController.setViewControllers([newVC], direction: .forward, animated: false)
-            coordinator.currentIndex = currentIndex
-            return
-        }
-        
-        // 2) If user swiped to change currentIndex, update the displayed controller
-        if coordinator.currentIndex != currentIndex {
-            let newVC = coordinator.hostingController(for: currentIndex)
-            let direction: UIPageViewController.NavigationDirection =
-                coordinator.currentIndex > currentIndex ? .reverse : .forward
-            
-            // Only animate if the user moved 1 step
-            let shouldAnimate = abs(coordinator.currentIndex - currentIndex) <= 1
-            uiViewController.setViewControllers([newVC], direction: direction, animated: shouldAnimate)
-            
-            coordinator.currentIndex = currentIndex
-        }
-    }
-    
-    class Coordinator: NSObject, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
-        var parent: VerticalFeedView
-        var currentIndex: Int
-        var feedVersion: Int
-        
-        // Cache each page’s UIHostingController
-        var hostingControllers: [Int: UIHostingController<AnyView>] = [:]
-        
-        init(_ verticalFeedView: VerticalFeedView) {
-            self.parent = verticalFeedView
-            self.currentIndex = verticalFeedView.currentIndex
-            self.feedVersion = verticalFeedView.feedVersion
-        }
-        
-        func hostingController(for index: Int) -> UIHostingController<AnyView> {
-            // If out of bounds, show a blank view
-            guard index >= 0 && index < parent.itemCount else {
-                return UIHostingController(rootView: AnyView(Color.black))
-            }
-            if let existingController = hostingControllers[index] {
-                return existingController
-            }
-            // Build a new hosting controller for this index
-            let view = AnyView(
-                parent.content(index)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.black)
-            )
-            let controller = UIHostingController(rootView: view)
-            controller.view.backgroundColor = .clear
-            hostingControllers[index] = controller
-            
-            // Clean up distant pages for memory usage
-            cleanupDistantControllers(from: index)
-            
-            return controller
-        }
-        
-        private func cleanupDistantControllers(from currentIndex: Int) {
-            // Keep only a few pages around (the current, plus some near neighbors)
-            let keepRange = (currentIndex - 2)...(currentIndex + 2)
-            hostingControllers = hostingControllers.filter { keepRange.contains($0.key) }
-        }
-        
-        // MARK: - UIPageViewControllerDataSource
-        func pageViewController(_ pageViewController: UIPageViewController,
-                                viewControllerBefore viewController: UIViewController) -> UIViewController? {
-            let index = currentIndex - 1
-            guard index >= 0 else { return nil }
-            return hostingController(for: index)
-        }
-        
-        func pageViewController(_ pageViewController: UIPageViewController,
-                                viewControllerAfter viewController: UIViewController) -> UIViewController? {
-            let index = currentIndex + 1
-            guard index < parent.itemCount else { return nil }
-            return hostingController(for: index)
-        }
-        
-        // MARK: - UIPageViewControllerDelegate
-        func pageViewController(_ pageViewController: UIPageViewController,
-                                didFinishAnimating finished: Bool,
-                                previousViewControllers: [UIViewController],
-                                transitionCompleted completed: Bool) {
-            guard completed,
-                  let visibleViewController = pageViewController.viewControllers?.first,
-                  let index = hostingControllers.first(where: { $0.value == visibleViewController })?.key
-            else { return }
-            
-            currentIndex = index
-            parent.onIndexChanged(index)
+        .onDisappear {
+            // Pause the player when not in view
+            appStore.videoManager.pause()
         }
     }
 }
