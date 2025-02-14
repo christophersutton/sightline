@@ -87,6 +87,12 @@ struct ContentFeedView: View {
             }
         }
         .ignoresSafeArea()
+        .onAppear {
+            // Ensure the first video starts playing when the feed appears
+            if !appStore.contentItems.isEmpty {
+                appStore.videoManager.play(url: appStore.contentItems[appStore.currentIndex].videoUrl)
+            }
+        }
     }
 
     private var menuBar: some View {
