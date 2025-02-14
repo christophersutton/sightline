@@ -39,9 +39,6 @@ struct UserProfileView: View {
             }
         }
         .confirmationDialog("Profile Options", isPresented: $showProfileMenu) {
-            Button("Add Profile Photo") {
-                // Photo functionality would go here
-            }
             Button("Sign Out", role: .destructive) {
                 Task {
                     await profileStore.signOut() // Use profileStore
