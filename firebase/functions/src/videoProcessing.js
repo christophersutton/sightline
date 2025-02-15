@@ -460,14 +460,52 @@ Transcription: "${data.transcriptionText}"`;
       ["restaurant", "drinks", "events", "music", "art", "outdoors", "shopping", "coffee"].includes(tag),
     );
 
+    // Move the video file to its final location
+    const sourceVideoPath = data.videoPath;
+
+    if (!sourceVideoPath) {
+      throw new Error("Video path not found in document");
+    }
+
+    // Parse the source path
+    const gsPath = sourceVideoPath.replace("gs://", "").split("/");
+    const bucketName = gsPath.shift();
+    const sourcePath = gsPath.join("/");
+
+    // Create the destination path in the content folder
+    const fileName = path.basename(sourcePath);
+    const destinationPath = `content/${fileName}`;
+
+    console.log("Moving video file:", {
+      from: sourcePath,
+      to: destinationPath,
+      bucket: bucketName,
+    });
+
+    // Get bucket reference
+    const bucket = admin.storage().bucket(bucketName);
+    const sourceFile = bucket.file(sourcePath);
+    const destinationFile = bucket.file(destinationPath);
+
+    // Move the file
+    try {
+      await sourceFile.move(destinationFile);
+      console.log("Successfully moved video file to content folder");
+    } catch (moveError) {
+      console.error("Error moving file:", moveError);
+      throw new Error(`Failed to move video file: ${moveError.message}`);
+    }
+
+    // Update document with new video path and complete status
     await docRef.ref.update({
       processingStatus: ProcessingState.COMPLETE,
       tags: validTags,
       caption: response.caption,
+      videoPath: `gs://${bucketName}/${destinationPath}`,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
   } catch (error) {
-    console.error(`Error generating tags for ${contentId}:`, error);
+    console.error(`Error in final processing stage for ${docRef.id}:`, error);
     throw error;
   }
 }

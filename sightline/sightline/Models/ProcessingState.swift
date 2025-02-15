@@ -56,8 +56,28 @@ enum ProcessingState: String {
         }
     }
     
+    var isErrorState: Bool {
+        switch self {
+        case .failed, .rejected:
+            return true
+        default:
+            return false
+        }
+    }
+    
+    var errorMessage: String {
+        switch self {
+        case .rejected:
+            return "This content couldn't be posted. It may contain inappropriate material."
+        case .failed:
+            return "Something went wrong. Please try again."
+        default:
+            return ""
+        }
+    }
+    
     static var allSteps: [(state: ProcessingState, message: String)] = [
-        (.uploading, "Uploading your masterpiece..."),
+        (.uploading, "Uploading your video..."),
         (.readyForTranscription, "Listening carefully to every word..."),
         (.readyForModeration, "Making sure everything's family-friendly..."),
         (.readyForTagging, "Adding some magic tags..."),
