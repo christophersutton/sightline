@@ -81,6 +81,17 @@ class VideoCaptureController: NSObject, ObservableObject {
         videoOutput.setSampleBufferDelegate(self, queue: DispatchQueue(label: "videoQueue"))
         if session.canAddOutput(videoOutput) {
             session.addOutput(videoOutput)
+            
+            // Add this new code to set orientation
+            if let connection = videoOutput.connection(with: .video) {
+                if connection.isVideoOrientationSupported {
+                    connection.videoOrientation = .portrait
+                }
+                if connection.isVideoMirroringSupported {
+                    connection.isVideoMirrored = false
+                }
+            }
+            
             self.videoOutput = videoOutput
         }
         
@@ -113,15 +124,17 @@ class VideoCaptureController: NSObject, ObservableObject {
         do {
             assetWriter = try AVAssetWriter(url: videoPath, fileType: .mp4)
             
-            // Configure video input
+            // Update video settings to include orientation
             let videoSettings: [String: Any] = [
                 AVVideoCodecKey: AVVideoCodecType.h264,
-                AVVideoWidthKey: 1280, // Reduced from 1920 for better performance
-                AVVideoHeightKey: 720,  // Reduced from 1080
+                AVVideoWidthKey: 720,  // Swapped width/height for portrait
+                AVVideoHeightKey: 1280, // Swapped width/height for portrait
                 AVVideoCompressionPropertiesKey: [
-                    AVVideoAverageBitRateKey: 2000000, // 2 Mbps
+                    AVVideoAverageBitRateKey: 2000000,
                     AVVideoMaxKeyFrameIntervalKey: 30,
-                    AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
+                    AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
+                    AVVideoExpectedSourceFrameRateKey: 30,
+                    AVVideoH264EntropyModeKey: AVVideoH264EntropyModeCABAC
                 ]
             ]
             
@@ -190,7 +203,7 @@ class VideoCaptureController: NSObject, ObservableObject {
         
         session.beginConfiguration()
         
-        // Remove only video input
+        // Remove existing video input
         let videoInput = session.inputs.first { input in
             (input as? AVCaptureDeviceInput)?.device.hasMediaType(.video) ?? false
         }
@@ -212,6 +225,18 @@ class VideoCaptureController: NSObject, ObservableObject {
         }
         
         session.addInput(videoInput)
+        
+        // Ensure proper orientation for new camera
+        if let videoOutput = self.videoOutput,
+           let connection = videoOutput.connection(with: .video) {
+            if connection.isVideoOrientationSupported {
+                connection.videoOrientation = .portrait
+            }
+            if connection.isVideoMirroringSupported {
+                connection.isVideoMirrored = (currentCamera == .front)
+            }
+        }
+        
         session.commitConfiguration()
     }
     
