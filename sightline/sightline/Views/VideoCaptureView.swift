@@ -343,23 +343,7 @@ struct VideoCaptureView: View {
                 }
             } else {
                 // Processing screen
-                ZStack {
-                    Color.black.edgesIgnoringSafeArea(.all)
-                    
-                    VStack(spacing: 20) {
-                        ProcessingStatusView(state: controller.processingState)
-                        
-                        // Optional cancel button
-                        Button(action: { dismiss() }) {
-                            Text("Cancel")
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 10)
-                                .background(Color.gray.opacity(0.3))
-                                .cornerRadius(8)
-                        }
-                    }
-                }
+                ProcessingProgressView(currentState: controller.processingState)
             }
             
             if let error = controller.error {
@@ -375,28 +359,6 @@ struct VideoCaptureView: View {
             if shouldDismiss {
                 dismiss()
             }
-        }
-    }
-}
-
-struct ProcessingStatusView: View {
-    let state: ProcessingState
-    
-    var body: some View {
-        VStack(spacing: 8) {
-            // Show progress indicator for any non-terminal state
-            if case .uploading = state {
-                ProgressView()
-                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-            }
-            
-            Text(state.description)
-                .foregroundColor(.white)
-                .font(.system(size: 16, weight: .medium))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-                .background(Color.black.opacity(0.6))
-                .cornerRadius(8)
         }
     }
 } 

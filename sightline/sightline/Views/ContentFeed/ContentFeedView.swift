@@ -38,20 +38,25 @@ struct ContentFeedView: View {
 
     @ViewBuilder
     private var contentDisplay: some View {
-        if appStore.unlockedNeighborhoods.isEmpty {
-            EmptyNeighborhoodState()
-        } else if appStore.isLoadingContent {
-            VStack {
-                Spacer()
-                ProgressView()
-                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                Spacer()
+        Group {
+            if appStore.unlockedNeighborhoods.isEmpty {
+                EmptyNeighborhoodState()
+                    .onAppear { print("📱 No unlocked neighborhoods available") }
+            } else if appStore.isLoadingContent {
+                VStack {
+                    Spacer()
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    Spacer()
+                }
+                .onAppear { print("📱 Loading content...") }
+            } else if appStore.contentItems.isEmpty {
+                Text("No content available")
+                    .foregroundColor(.white)
+                    .onAppear { print("📱 No content items available") }
+            } else {
+                feedView
             }
-        } else if appStore.contentItems.isEmpty {
-            Text("No content available")
-                .foregroundColor(.white)
-        } else {
-            feedView
         }
     }
 
@@ -61,14 +66,24 @@ struct ContentFeedView: View {
             itemCount: appStore.contentItems.count,
             feedVersion: appStore.feedVersion,
             onIndexChanged: { newIndex, oldIndex in
-                // 1) Pause the old video if it's valid
-                if oldIndex >= 0, oldIndex < appStore.contentItems.count {
-                    let oldVideoUrl = appStore.contentItems[oldIndex].videoUrl
-                    appStore.videoManager.pause(url: oldVideoUrl)
+                Task { @MainActor in
+                    print("📱 Feed index changing from \(oldIndex) to \(newIndex)")
+                    // 1) Pause the old video if it's valid
+                    if oldIndex >= 0, oldIndex < appStore.contentItems.count {
+                        let oldVideoUrl = appStore.contentItems[oldIndex].videoUrl
+                        print("📱 Pausing video at URL: \(oldVideoUrl)")
+                        appStore.videoManager.pause(url: oldVideoUrl)
+                    }
+                    
+                    // 2) Update the store's currentIndex
+                    appStore.currentIndex = newIndex
+                    
+                    // 3) Log the current content item
+                    if newIndex >= 0 && newIndex < appStore.contentItems.count {
+                        let content = appStore.contentItems[newIndex]
+                        print("📱 Current content item: id=\(content.id), videoUrl=\(content.videoUrl)")
+                    }
                 }
-                
-                // 2) Update the store's currentIndex
-                appStore.currentIndex = newIndex
             }
         ) { index in
             // Provide the ContentItemView
@@ -88,9 +103,12 @@ struct ContentFeedView: View {
         }
         .ignoresSafeArea()
         .onAppear {
+            print("📱 Feed view appeared with \(appStore.contentItems.count) items")
             // Ensure the first video starts playing when the feed appears
             if !appStore.contentItems.isEmpty {
-                appStore.videoManager.play(url: appStore.contentItems[appStore.currentIndex].videoUrl)
+                let firstVideo = appStore.contentItems[appStore.currentIndex]
+                print("📱 Auto-playing first video: \(firstVideo.videoUrl)")
+                appStore.videoManager.play(url: firstVideo.videoUrl)
             }
         }
     }

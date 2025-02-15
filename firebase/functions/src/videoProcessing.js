@@ -228,7 +228,7 @@ async function transcribeVideo(docRef) {
     let detectedFormat;
     try {
       const buffer = fs.readFileSync(tempFilePath, {start: 0, end: 1024});
-      
+
       // Common video file signatures
       const signatures = {
         mp4: ["66747970"], // 'ftyp'
@@ -236,25 +236,24 @@ async function transcribeVideo(docRef) {
         iso2: ["69736f32"], // 'iso2'
         mp4a: ["6d703461"], // 'mp4a'
       };
-      
+
       const fileStart = buffer.slice(0, 16).toString("hex");
       const analysis = {
         firstBytes: fileStart,
-        knownSignatures: Object.entries(signatures).filter(([_, sig]) => 
+        knownSignatures: Object.entries(signatures).filter(([_, sig]) =>
           fileStart.includes(sig[0])).map(([name]) => name),
         possibleContainer: fileStart.includes("66747970") ? "MP4" :
                          fileStart.includes("6d6f6f76") ? "QuickTime" : "Unknown",
         mimeType: metadata.contentType,
         customMetadata: metadata.metadata,
       };
-      
+
       console.log("Detailed file analysis:", analysis);
-      
+
       // Set the appropriate content type based on the actual container format
-      detectedFormat = analysis.possibleContainer === "QuickTime" ? "video/quicktime" : 
-                      analysis.possibleContainer === "MP4" ? "video/mp4" : 
+      detectedFormat = analysis.possibleContainer === "QuickTime" ? "video/quicktime" :
+                      analysis.possibleContainer === "MP4" ? "video/mp4" :
                       "video/mp4"; // fallback to mp4
-      
     } catch (readError) {
       console.error("Error analyzing file:", readError);
       detectedFormat = "video/mp4"; // fallback to mp4 if analysis fails
@@ -277,17 +276,15 @@ async function transcribeVideo(docRef) {
     const transcription = await openai.audio.transcriptions.create({
       file: fs.createReadStream(tempFilePath, {
         filepath: tempFilePath,
-        contentType: detectedFormat, // Use the detected format
+        contentType: detectedFormat,
       }),
       model: "whisper-1",
-      response_format: "verbose_json",
-      timestamp_granularities: ["word"],
+      response_format: "text",
     });
 
     console.log("Transcription response:", {
-      hasText: !!transcription.text,
-      hasWords: Array.isArray(transcription.words),
-      wordCount: transcription.words?.length,
+      hasText: !!transcription,
+      textLength: transcription?.length,
     });
 
     // Clean up both files if needed
@@ -298,8 +295,7 @@ async function transcribeVideo(docRef) {
     // Update document
     await docRef.ref.update({
       processingStatus: ProcessingState.READY_FOR_MODERATION,
-      transcriptionText: transcription.text,
-      transcriptionWords: transcription.words || [],
+      transcriptionText: transcription,
       fileFormat: fileExtension,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -359,36 +355,53 @@ async function moderateContent(docRef) {
   const contentId = docRef.id;
   console.log(`Starting moderation for content ${contentId}`);
 
-  // Simulate some processing time
-  await new Promise((resolve) => setTimeout(resolve, 2000));
+  const data = docRef.data();
+  if (!data.transcriptionText) {
+    throw new Error("No transcription found for content");
+  }
 
-  // Simulate 90% pass rate
-  const shouldPass = Math.random() < 0.9;
-
-  console.log(`Moderation decision for content ${contentId}:`, {
-    passed: shouldPass,
+  const openai = new OpenAI({
+    apiKey: OPENAI_API_KEY.value(),
   });
 
-  if (shouldPass) {
-    await docRef.ref.update({
-      processingStatus: ProcessingState.READY_FOR_TAGGING,
-      moderationResults: {
-        flagged: false,
-        categories: {},
-      },
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  try {
+    // Call OpenAI's moderation endpoint
+    const moderationResponse = await openai.moderations.create({
+      input: data.transcriptionText,
     });
-  } else {
-    await docRef.ref.update({
-      processingStatus: ProcessingState.REJECTED,
-      moderationResults: {
-        flagged: true,
-        categories: {
-          violence: true,
+
+    const result = moderationResponse.results[0];
+    console.log(`Moderation results for ${contentId}:`, result);
+
+    // Check if any category is flagged
+    const isFlagged = result.flagged;
+
+    if (isFlagged) {
+      await docRef.ref.update({
+        processingStatus: ProcessingState.REJECTED,
+        moderationResults: {
+          flagged: true,
+          categories: result.categories,
+          categoryScores: result.category_scores,
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
         },
-      },
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    } else {
+      await docRef.ref.update({
+        processingStatus: ProcessingState.READY_FOR_TAGGING,
+        moderationResults: {
+          flagged: false,
+          categories: result.categories,
+          categoryScores: result.category_scores,
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+  } catch (error) {
+    console.error(`Error moderating content ${contentId}:`, error);
+    throw error;
   }
 }
 
@@ -401,14 +414,62 @@ async function generateTags(docRef) {
   const contentId = docRef.id;
   console.log(`Starting tagging for content ${contentId}`);
 
-  // Simulate some processing time
-  await new Promise((resolve) => setTimeout(resolve, 2000));
+  const data = docRef.data();
+  if (!data.transcriptionText) {
+    throw new Error("No transcription found for content");
+  }
 
-  await docRef.ref.update({
-    processingStatus: ProcessingState.COMPLETE,
-    tags: ["restaurant", "indoor"],
-    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  const openai = new OpenAI({
+    apiKey: OPENAI_API_KEY.value(),
   });
+
+  const prompt = `Analyze this video transcription and:
+1. Select relevant one or at most two relevant tags from this exact list: restaurant, drinks, events, music, art, outdoors, shopping, coffee
+2. Generate a short, engaging caption (30-60 characters) with emoji that captures the vibe
+
+Examples of good captions:
+- "Weekend brunch vibes at Caroline 🍳"
+- "Live music at Firehouse 🎷"
+- "Secret speakeasy vibes 🍸"
+- "Coffee and pastries at Dawn ☕️"
+- "Street art hunting downtown 🎨"
+
+Please format your response as JSON with these exact keys:
+{
+  "tags": ["tag1", "tag2"],
+  "caption": "Your caption here"
+}
+
+Transcription: "${data.transcriptionText}"`;
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4-turbo-preview",
+      messages: [{
+        role: "user",
+        content: prompt,
+      }],
+      response_format: {type: "json_object"},
+    });
+
+    const response = JSON.parse(completion.choices[0].message.content);
+    console.log(`Generated content for ${contentId}:`, response);
+
+    // Validate tags against FilterCategory
+    const validTags = response.tags.filter((tag) =>
+      ["restaurant", "drinks", "events", "music", "art", "outdoors", "shopping", "coffee"].includes(tag),
+    );
+
+    await docRef.ref.update({
+      processingStatus: ProcessingState.COMPLETE,
+      tags: validTags,
+      caption: response.caption,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (error) {
+    console.error(`Error generating tags for ${contentId}:`, error);
+    throw error;
+  }
 }
 
 /**
@@ -458,7 +519,6 @@ export const handleVideoUpload = functions
     .storage.bucket(STORAGE_BUCKET.value())
     .object()
     .onFinalize(async (object) => {
-    // Run cleanup at start of function
       cleanupTempDirectory();
 
       if (!object.name.startsWith("processing/")) {
@@ -474,36 +534,69 @@ export const handleVideoUpload = functions
         generation: object.generation,
       });
 
-      // Extract contentId from path (processing/placeId/contentId.mp4)
+      // Extract placeId from path (processing/placeId/contentId.mp4)
       const pathParts = object.name.split("/");
       console.log("Path parts:", pathParts);
+      const placeId = pathParts[1];
       const contentId = pathParts[2]?.replace(".mp4", "");
 
-      if (!contentId) {
-        console.error("Could not extract contentId from path:", object.name);
+      if (!contentId || !placeId) {
+        console.error("Could not extract contentId or placeId from path:", object.name);
         return;
       }
 
       try {
-        const docRef = admin.firestore().collection("content").doc(contentId);
+        // Get the place document to fetch its neighborhoodId
+        const placeDoc = await admin.firestore().collection("places").doc(placeId).get();
 
+        if (!placeDoc.exists) {
+          throw new Error(`Place document ${placeId} not found`);
+        }
+
+        const place = placeDoc.data();
+        const neighborhoodId = place.neighborhoodId;
+
+        if (!neighborhoodId) {
+          throw new Error(`Place ${placeId} has no neighborhoodId`);
+        }
+
+        const docRef = admin.firestore().collection("content").doc(contentId);
         const doc = await docRef.get();
+
         if (!doc.exists) {
           console.error(`Document ${contentId} not found`);
           return;
         }
 
-        console.log("Current document state:", doc.data());
-
-        // Start processing pipeline
+        // Start processing pipeline with neighborhoodId
         await docRef.update({
           processingStatus: ProcessingState.READY_FOR_TRANSCRIPTION,
           videoPath: `gs://${object.bucket}/${object.name}`,
+          neighborhoodId: neighborhoodId,
+          placeIds: [placeId], // Ensure placeId is set
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-        console.log(`Updated document ${contentId} to start processing`);
+
+        console.log(`Updated document ${contentId} to start processing with neighborhoodId: ${neighborhoodId}`);
       } catch (error) {
         console.error(`Failed to update document ${contentId}:`, error);
+
+        // Update content document with error state if possible
+        try {
+          const docRef = admin.firestore().collection("content").doc(contentId);
+          await docRef.update({
+            processingStatus: ProcessingState.FAILED,
+            error: error.message,
+            errorDetails: {
+              message: error.message,
+              stage: "initialization",
+              timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        } catch (updateError) {
+          console.error("Failed to update error state:", updateError);
+        }
       }
     });
 
@@ -542,25 +635,3 @@ function logMemoryUsage(label) {
     external: `${Math.round(used.external / 1024 / 1024)}MB`,
   });
 }
-
-
-// TODO: Validate audio file before transcription
-// async function validateAudioFile(filePath) {
-//   if (!fs.existsSync(filePath)) {
-//     throw new Error("Audio file not found");
-//   }
-
-//   const stats = fs.statSync(filePath);
-//   const fileSizeInMB = stats.size / (1024 * 1024);
-
-//   if (fileSizeInMB > 25) {
-//     throw new Error(`File size ${fileSizeInMB.toFixed(2)}MB exceeds limit of 25MB`);
-//   }
-
-//   // Check if file is empty
-//   if (stats.size === 0) {
-//     throw new Error("Audio file is empty");
-//   }
-
-//   return true;
-// }

@@ -43,44 +43,52 @@ class AppStore: Store {
     @Published var isLoadingContent: Bool = false
     
     func loadUnlockedNeighborhoods() async {
+        print("🏪 Loading unlocked neighborhoods...")
         do {
             let neighborhoods = try await services.neighborhood.fetchUnlockedNeighborhoods()
+            print("🏪 Loaded \(neighborhoods.count) neighborhoods: \(neighborhoods.map { $0.name })")
             unlockedNeighborhoods = neighborhoods
             if selectedNeighborhood == nil ||
                 !neighborhoods.contains(where: { $0.id == selectedNeighborhood?.id }) {
                 selectedNeighborhood = neighborhoods.first
+                print("🏪 Auto-selected neighborhood: \(neighborhoods.first?.name ?? "none")")
             }
         } catch {
-            print("Error loading neighborhoods: \(error)")
+            print("🏪 ❌ Error loading neighborhoods: \(error)")
         }
     }
     
     func loadAvailableCategories() async {
-        guard let neighborhood = selectedNeighborhood else { return }
+        guard let neighborhood = selectedNeighborhood else {
+            print("🏪 Cannot load categories - no neighborhood selected")
+            return
+        }
+        
+        print("🏪 Loading categories for neighborhood: \(neighborhood.name)")
         do {
             let categories = try await services.neighborhood.fetchAvailableCategories(neighborhoodId: neighborhood.id!)
+//            print("🏪 Loaded \(categories.count) categories: \(categories.map { $0.name })")
             availableCategories = categories
             
             if !categories.contains(selectedCategory) && !categories.isEmpty {
                 selectedCategory = categories[0]
+//                print("🏪 Auto-selected category: \(categories[0].name)")
             }
         } catch {
-            print("Error loading categories: \(error)")
+            print("🏪 ❌ Error loading categories: \(error)")
         }
     }
     
     func loadContent() async {
+        print("🏪 Starting content load...")
+//        print("🏪 Current state - Neighborhood: \(selectedNeighborhood?.name ?? "none"), Category: \(selectedCategory.name)")
+        
         isLoadingContent = true
         defer { isLoadingContent = false }
         videoManager.cleanup()
         
-        // // 1) Pause the current video if we have a valid index
-        // if currentIndex >= 0, currentIndex < contentItems.count {
-        //     let oldUrl = contentItems[currentIndex].videoUrl
-        //     videoManager.pause(url: oldUrl)
-        // }
-        
         guard let neighborhood = selectedNeighborhood else {
+            print("🏪 No neighborhood selected, clearing content")
             contentItems = []
             places = [:]
             return
@@ -90,19 +98,27 @@ class AppStore: Store {
             // Make sure we have categories
             await loadAvailableCategories()
             
+//            print("🏪 Fetching content for neighborhood: \(neighborhood.name), category: \(selectedCategory.name)")
+            
             // Fetch content for the selected neighborhood + category
             let fetchedContent = try await services.content.fetchContent(
                 neighborhoodId: neighborhood.id!,
                 category: selectedCategory
             )
             
+            print("🏪 Fetched \(fetchedContent.count) content items")
+            
             // Fill place data for each piece of content
             var placeMap: [String: Place] = [:]
             for item in fetchedContent {
+                print("🏪 Content item: id=\(item.id), videoUrl=\(item.videoUrl)")
                 for placeId in item.placeIds {
                     if places[placeId] == nil && placeMap[placeId] == nil {
                         if let place = try? await services.place.fetchPlace(id: placeId) {
                             placeMap[placeId] = place
+                            print("🏪 Loaded place: \(place.name) (id: \(placeId))")
+                        } else {
+                            print("🏪 ⚠️ Failed to load place with id: \(placeId)")
                         }
                     }
                 }
@@ -114,13 +130,16 @@ class AppStore: Store {
             // Preload videos for the first item
             if !contentItems.isEmpty {
                 let urls = contentItems.map { $0.videoUrl }
+                print("🏪 Preloading \(urls.count) videos starting at index 0")
                 videoManager.preloadVideos(for: urls, at: 0)
             }
             
             // Increment feedVersion so the UI reloads if data changes
             feedVersion += 1
+            print("🏪 Content load complete - Feed version: \(feedVersion)")
+            
         } catch {
-            print("Error loading content: \(error)")
+            print("🏪 ❌ Error loading content: \(error)")
             contentItems = []
             places = [:]
         }

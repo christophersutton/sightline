@@ -41,4 +41,26 @@ enum ProcessingState: String {
             return "Processing failed"
         }
     }
+    
+    var stepIndex: Int {
+        switch self {
+        case .notStarted: return -1
+        case .uploading: return 0
+        case .created: return 0  // Same as uploading
+        case .readyForTranscription: return 1
+        case .readyForModeration: return 2
+        case .readyForTagging: return 3
+        case .complete: return 4
+        case .rejected: return -1 // Terminal state like failed
+        case .failed: return -1
+        }
+    }
+    
+    static var allSteps: [(state: ProcessingState, message: String)] = [
+        (.uploading, "Uploading your masterpiece..."),
+        (.readyForTranscription, "Listening carefully to every word..."),
+        (.readyForModeration, "Making sure everything's family-friendly..."),
+        (.readyForTagging, "Adding some magic tags..."),
+        (.complete, "All done! Looking great!")
+    ]
 } 
