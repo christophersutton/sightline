@@ -19,6 +19,7 @@ struct EmptyNeighborhoodState: View {
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .clipped()
                         .ignoresSafeArea()
+                        .accessibilityHidden(true)  // Hide from screen readers
                     
                     // Content Container
                     VStack(spacing: 24) {
@@ -31,6 +32,7 @@ struct EmptyNeighborhoodState: View {
                                 .opacity(0.9)
                                 .lineLimit(nil)
                                 .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityAddTraits(.isHeader)
                             
                             Text("Discover local landmarks to unlock neighborhood content and start exploring stories from your community")
                                 .font(.custom("Baskerville", size: 18))
@@ -41,6 +43,7 @@ struct EmptyNeighborhoodState: View {
                                 .font(.system(size: 72))
                                 .foregroundColor(.black.opacity(0.9))
                                 .padding(.top, 8)
+                                .accessibilityLabel("Camera viewfinder icon")
                         }
                         .padding(24)
                         .background(.thinMaterial)

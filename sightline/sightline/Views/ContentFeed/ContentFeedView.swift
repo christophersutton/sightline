@@ -16,8 +16,11 @@ struct ContentFeedView: View {
             contentDisplay
                 .zIndex(0)
             
-            menuBar
-                .zIndex(2)
+            // Only show menu bar if there are unlocked neighborhoods
+            if !appStore.unlockedNeighborhoods.isEmpty {
+                menuBar
+                    .zIndex(2)
+            }
         }
         // Display place detail in a sheet when tapped
         .sheet(item: Binding(
