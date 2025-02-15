@@ -42,6 +42,13 @@ class AppStore: Store {
     
     @Published var isLoadingContent: Bool = false
     
+    enum AppStoreError: Error {
+        case noNeighborhoodSelected
+        case noCategoriesAvailable
+        case neighborhoodNotFound
+        case contentLoadFailed(Error)
+    }
+    
     func loadUnlockedNeighborhoods() async {
         print("🏪 Loading unlocked neighborhoods...")
         do {
@@ -67,12 +74,12 @@ class AppStore: Store {
         print("🏪 Loading categories for neighborhood: \(neighborhood.name)")
         do {
             let categories = try await services.neighborhood.fetchAvailableCategories(neighborhoodId: neighborhood.id!)
-//            print("🏪 Loaded \(categories.count) categories: \(categories.map { $0.name })")
+            print("🏪 Loaded \(categories.count) categories: \(categories.map { $0.rawValue })")
             availableCategories = categories
             
             if !categories.contains(selectedCategory) && !categories.isEmpty {
                 selectedCategory = categories[0]
-//                print("🏪 Auto-selected category: \(categories[0].name)")
+                print("🏪 Auto-selected category: \(categories[0].rawValue)")
             }
         } catch {
             print("🏪 ❌ Error loading categories: \(error)")
@@ -81,7 +88,7 @@ class AppStore: Store {
     
     func loadContent() async {
         print("🏪 Starting content load...")
-//        print("🏪 Current state - Neighborhood: \(selectedNeighborhood?.name ?? "none"), Category: \(selectedCategory.name)")
+        print("🏪 Current state - Neighborhood: \(selectedNeighborhood?.name ?? "none"), Category: \(selectedCategory.rawValue)")
         
         isLoadingContent = true
         defer { isLoadingContent = false }
@@ -98,7 +105,7 @@ class AppStore: Store {
             // Make sure we have categories
             await loadAvailableCategories()
             
-//            print("🏪 Fetching content for neighborhood: \(neighborhood.name), category: \(selectedCategory.name)")
+            print("🏪 Fetching content for neighborhood: \(neighborhood.name), category: \(selectedCategory.rawValue)")
             
             // Fetch content for the selected neighborhood + category
             let fetchedContent = try await services.content.fetchContent(

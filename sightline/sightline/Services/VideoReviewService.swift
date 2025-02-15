@@ -84,15 +84,12 @@ class VideoReviewService {
             let result = try await storageRef.putDataAsync(videoData, metadata: metadata)
             print("📝 Upload metadata result:", result.dictionaryRepresentation())
             
-            let downloadURL = try await storageRef.downloadURL()
-            
             // Update document with video path to trigger processing
             try await firestore
                 .collection("content")
                 .document(reviewId)
                 .updateData([
-                    "videoPath": "gs://\(storage.reference().bucket)/\(storagePath)",
-                    "videoUrl": downloadURL.absoluteString,
+                    "videoUrl": "gs://\(storage.reference().bucket)/\(storagePath)",
                     "processingStatus": ProcessingState.readyForTranscription.rawValue,
                     "updatedAt": FieldValue.serverTimestamp()
                 ])

@@ -156,18 +156,18 @@ async function transcribeVideo(docRef) {
       apiKey: OPENAI_API_KEY.value(),
     });
 
-    if (!data.videoPath) {
-      throw new Error("Video path not found in document");
+    if (!data.videoUrl) {
+      throw new Error("Video URL not found in document");
     }
 
     // Enhanced debugging for storage path parsing
     console.log("Processing video path:", {
-      originalPath: data.videoPath,
+      originalPath: data.videoUrl,
       contentId: contentId,
     });
 
     // Parse storage path
-    const gsPath = data.videoPath.replace("gs://", "").split("/");
+    const gsPath = data.videoUrl.replace("gs://", "").split("/");
     const bucketName = gsPath.shift();
     const filePath = gsPath.join("/");
     const fileExtension = filePath.split(".").pop().toLowerCase();
@@ -461,10 +461,10 @@ Transcription: "${data.transcriptionText}"`;
     );
 
     // Move the video file to its final location
-    const sourceVideoPath = data.videoPath;
+    const sourceVideoPath = data.videoUrl;
 
     if (!sourceVideoPath) {
-      throw new Error("Video path not found in document");
+      throw new Error("Video URL not found in document");
     }
 
     // Parse the source path
@@ -496,12 +496,12 @@ Transcription: "${data.transcriptionText}"`;
       throw new Error(`Failed to move video file: ${moveError.message}`);
     }
 
-    // Update document with new video path and complete status
+    // Update document with new video URL and complete status
     await docRef.ref.update({
       processingStatus: ProcessingState.COMPLETE,
       tags: validTags,
       caption: response.caption,
-      videoPath: `gs://${bucketName}/${destinationPath}`,
+      videoUrl: `gs://${bucketName}/${destinationPath}`,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
   } catch (error) {
@@ -525,12 +525,12 @@ export const initializeVideoProcessing = functions
 
       console.log(`Initializing processing for new content ${contentId}:`, {
         initialState: data.processingStatus,
-        hasVideoPath: !!data.videoPath,
+        hasVideoUrl: !!data.videoUrl,
       });
 
-      // Start in CREATED state if no video path
-      if (!data.videoPath) {
-        console.log(`Setting to CREATED state - no video path for content ${contentId}`);
+      // Start in CREATED state if no video URL
+      if (!data.videoUrl) {
+        console.log(`Setting to CREATED state - no video URL for content ${contentId}`);
         await snap.ref.update({
           processingStatus: ProcessingState.CREATED,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -609,7 +609,7 @@ export const handleVideoUpload = functions
         // Start processing pipeline with neighborhoodId
         await docRef.update({
           processingStatus: ProcessingState.READY_FOR_TRANSCRIPTION,
-          videoPath: `gs://${object.bucket}/${object.name}`,
+          videoUrl: `gs://${object.bucket}/${object.name}`,
           neighborhoodId: neighborhoodId,
           placeIds: [placeId], // Ensure placeId is set
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
